@@ -1,0 +1,1833 @@
+import { useEffect, useState } from "react";
+import { api } from "./api";
+import { StatCard } from "./components/cards/StatCard";
+import { DataTable } from "./components/tables/DataTable";
+
+function currency(value, type = "INR") {
+  if (value == null) return "-";
+  const num = Number(value);
+  if (Number.isNaN(num)) return String(value);
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: type,
+    maximumFractionDigits: 0
+  }).format(num);
+}
+
+function number(value, max = 0) {
+  const num = Number(value);
+  if (Number.isNaN(num)) return "-";
+  return new Intl.NumberFormat("en-IN", { maximumFractionDigits: max }).format(num);
+}
+
+function formatDateTime(value) {
+  if (!value) return "-";
+  const dateValue = new Date(value);
+  if (Number.isNaN(dateValue.getTime())) return "-";
+  return dateValue.toLocaleString();
+}
+
+function sliceRows(payload) {
+  if (!payload) return [];
+  if (Array.isArray(payload)) return payload;
+  return payload.items || [];
+}
+
+function sortRowsByNewestId(rows) {
+  return [...rows].sort((left, right) => String(right.id || "").localeCompare(String(left.id || ""), undefined, { numeric: true }));
+}
+
+function submitAndMaybeClose(result, onClose) {
+  Promise.resolve(result).then((value) => {
+    if (value !== null && value !== undefined) {
+      onClose?.();
+    }
+  });
+}
+
+function toneFromValue(value) {
+  const text = String(value || "").toLowerCase();
+  if (["high", "pending", "open", "critical", "blocked"].some((item) => text.includes(item))) return "high";
+  if (["medium", "warning", "in_progress", "progress"].some((item) => text.includes(item))) return "medium";
+  if (["normal", "paid", "approved", "complete", "completed", "resolved", "closed", "active", "received"].some((item) => text.includes(item))) return "normal";
+  return "neutral";
+}
+
+function SeverityBadge({ value }) {
+  return <span className={`badge badge-${toneFromValue(value)}`}>{String(value || "Neutral").replaceAll("_", " ")}</span>;
+}
+
+const INTENT_LABELS = {
+  price_query: "Price Query",
+  input_request: "Input Request",
+  advisory: "Advisory",
+  disease_query: "Disease Query",
+  harvest_update: "Harvest Update",
+  broadcast_ack: "Broadcast Ack"
+};
+
+const INTENT_COLORS = {
+  price_query: "#1b5e20",
+  input_request: "#4caf50",
+  advisory: "#6b736b",
+  disease_query: "#ef5350",
+  harvest_update: "#ff9800",
+  broadcast_ack: "#8a928a"
+};
+
+function IntentChip({ value }) {
+  const label = INTENT_LABELS[value] || value || "General";
+  const color = INTENT_COLORS[value] || "#8a928a";
+  return (
+    <span className="intent-chip" style={{ "--chip-color": color }}>
+      {label}
+    </span>
+  );
+}
+
+function Drawer({ open, title, subtitle, onClose, children }) {
+  return (
+    <aside className={`drawer glass-strong ${open ? "open" : ""}`} aria-hidden={!open}>
+      <div className="drawer-head">
+        <div>
+          <h3>{title}</h3>
+          {subtitle ? <p className="drawer-subtitle">{subtitle}</p> : null}
+        </div>
+        <button type="button" className="btn-ghost btn-icon" onClick={onClose} aria-label={`Close ${title}`}>
+          x
+        </button>
+      </div>
+      <div className="drawer-body">{children}</div>
+    </aside>
+  );
+}
+
+function Modal({ open, title, onClose, wide, children }) {
+  if (!open) return null;
+  return (
+    <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className={`modal-panel ${wide ? "modal-wide" : ""}`}>
+        <div className="modal-head">
+          <h3>{title}</h3>
+          <button type="button" className="btn-ghost btn-icon" onClick={onClose} aria-label="Close">x</button>
+        </div>
+        <div className="modal-body">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function TableCard({ title, children, collapsible = false, defaultOpen = true, action }) {
+  const [modalOpen, setModalOpen] = useState(false);
+
+  if (collapsible) {
+    return (
+      <>
+        <button type="button" className="table-modal-trigger" onClick={() => setModalOpen(true)}>
+          <h3>{title}</h3>
+          <div className="content-block-actions">
+            {action}
+            <span className="trigger-hint">View</span>
+          </div>
+        </button>
+        <Modal open={modalOpen} title={title} onClose={() => setModalOpen(false)} wide>
+          {children}
+        </Modal>
+      </>
+    );
+  }
+
+  return (
+    <section className="content-block">
+      <div className="content-block-head">
+        <h3>{title}</h3>
+        <div className="content-block-actions">{action}</div>
+      </div>
+      <div className="table-card glass-normal">{children}</div>
+    </section>
+  );
+}
+
+function ProgressBar({ value, max, label }) {
+  const ratio = max ? Math.min(100, Math.round((value / max) * 100)) : 0;
+  return (
+    <div className="progress-shell">
+      <div className="progress-copy">
+        <span>{label}</span>
+        <span>{value} of {max}</span>
+      </div>
+      <div className="progress-track">
+        <div className="progress-fill" style={{ width: `${ratio}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function InlineConfirmAction({ label, confirmLabel = "Confirm?", onConfirm, disabled }) {
+  const [confirming, setConfirming] = useState(false);
+
+  if (!confirming) {
+    return (
+      <button type="button" className="btn-ghost btn-small" onClick={() => setConfirming(true)} disabled={disabled}>
+        {label}
+      </button>
+    );
+  }
+
+  return (
+    <div className="inline-confirm">
+      <span>{confirmLabel}</span>
+      <button type="button" className="btn-primary btn-small" onClick={() => { setConfirming(false); onConfirm(); }}>
+        Yes
+      </button>
+      <button type="button" className="btn-ghost btn-small" onClick={() => setConfirming(false)}>
+        Cancel
+      </button>
+    </div>
+  );
+}
+
+function MatchScoreCell({ value }) {
+  const pct = Math.max(0, Math.min(100, Math.round(Number(value || 0) * 100)));
+  return (
+    <div className="match-score-cell">
+      <span>{pct}%</span>
+      <div className="match-score-track">
+        <div className="match-score-fill" style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function MatchScoreInfoLabel() {
+  return (
+    <span className="score-header-label">
+      <span>Score</span>
+      <span
+        className="score-info-wrap"
+        tabIndex={0}
+        role="button"
+        aria-label="Score calculation details"
+      >
+        <span className="score-info-trigger" aria-hidden>
+          i
+        </span>
+        <span className="score-info-popover">
+          <strong>match_score = min(0.99, weighted)</strong>
+          <br />
+          weighted = Qty(32%) + District(14%) + Grade(18%) + Reliability(16%) + Terms(8%) + Margin(12%)
+          <br />
+          Qty: min(1, available / required)
+          <br />
+          District: 1.0 if same district, else 0.55
+          <br />
+          Grade: avg(A=1, B=0.82, C=0.6)
+          <br />
+          Reliability: buyer_reliability_score / 5
+          <br />
+          Terms: max(0.25, 1 - payment_terms_days/45)
+          <br />
+          Margin: clamp((offered_price - base_price + 350)/700, 0..1)
+        </span>
+      </span>
+    </span>
+  );
+}
+
+function AgentStatusBadge({ agentConfig }) {
+  if (!agentConfig) return null;
+  const available = agentConfig.agent_available;
+  return (
+    <div className="reply-mode-switch">
+      <span className="reply-mode-label">Agent Reply</span>
+      <span className={`pill-tab active`} title={available ? `${agentConfig.agent_provider} / ${agentConfig.agent_model}` : "Using heuristic fallback (no API key)"}>
+        {available ? "Live" : "Fallback"}
+      </span>
+    </div>
+  );
+}
+
+function AgentModeNotice({ agentConfig }) {
+  if (!agentConfig) return null;
+  if (!agentConfig.agent_available) {
+    return <p className="agent-mode-note">Agent auto-replies every farmer message. `OPENAI_API_KEY` not set - running heuristic fallback; unclear messages auto-escalate.</p>;
+  }
+  return <p className="agent-mode-note">Agent auto-replies every farmer message ({agentConfig.agent_provider} / {agentConfig.agent_model}). Only escalations appear on the Ticket Board.</p>;
+}
+
+export function renderSectionView(active, sectionData, handlers) {
+  if (!sectionData) {
+    return <div className="empty-section glass-light">No data loaded yet for this section.</div>;
+  }
+
+  switch (active) {
+    case "command":
+      return <CommandCenterSection sectionData={sectionData} handlers={handlers} />;
+    case "whatsapp":
+      return <WhatsAppDemoSectionV2 sectionData={sectionData} handlers={handlers} />;
+    case "dashboard":
+      return <DashboardSection sectionData={sectionData} />;
+    case "registry":
+      return <RegistrySection sectionData={sectionData} handlers={handlers} />;
+    case "operations":
+      return <OperationsSection sectionData={sectionData} handlers={handlers} />;
+    case "market":
+      return <MarketSection sectionData={sectionData} handlers={handlers} />;
+    case "communication":
+      return <CommunicationSection sectionData={sectionData} handlers={handlers} />;
+    case "governance":
+      return <GovernanceSection sectionData={sectionData} handlers={handlers} />;
+    case "carbon":
+      return <CarbonSection sectionData={sectionData} handlers={handlers} />;
+    case "reports":
+      return <ReportsSection sectionData={sectionData} handlers={handlers} />;
+    default:
+      return null;
+  }
+}
+
+function DashboardSection({ sectionData }) {
+  const headline = sectionData.headline || {};
+  const pendingSettlements = Number(headline.settlements_pending || 0);
+  const openDemands = Number(headline.input_demands_open || 0);
+  const openBuyerOrders = Number(headline.buyer_orders_open || 0);
+  return (
+    <div className="stack">
+      <div className="stat-grid dashboard-stat-grid">
+        <StatCard label="Total FPOs" value={number(headline.total_fpos)} />
+        <StatCard label="Total Farmers" value={number(headline.total_farmers)} />
+        <StatCard label="Input Demands Open" value={number(openDemands)} tone={openDemands > 0 ? "medium" : "normal"} />
+        <StatCard label="Buyer Orders Open" value={number(openBuyerOrders)} tone={openBuyerOrders > 0 ? "medium" : "normal"} />
+        <StatCard label="Settlements Pending" value={number(pendingSettlements)} tone={pendingSettlements > 0 ? "high" : "normal"} />
+        <StatCard label="Carbon Credits Est." value={number(headline.carbon_estimated_credits, 2)} />
+        <StatCard label="Carbon Revenue Est." value={currency(headline.carbon_estimated_revenue_usd)} helper="Simulated — based on practice data" />
+      </div>
+
+      <div className="equal-grid">
+        <TableCard title="Crop Distribution">
+          <DataTable
+            columns={[
+              { key: "crop", label: "Crop" },
+              { key: "farmers", label: "Farmers", render: (value) => number(value) },
+              { key: "area_ha", label: "Area (ha)", render: (value) => number(value, 1) }
+            ]}
+            rows={sectionData.crop_mix || []}
+          />
+        </TableCard>
+        <TableCard title="Latest Mandi Price Signals">
+          <DataTable
+            columns={[
+              { key: "crop", label: "Crop" },
+              { key: "mandi", label: "Market" },
+              { key: "price_avg", label: "Avg Price", render: (value) => currency(value) },
+              { key: "price_band", label: "Band" },
+              { key: "date", label: "Date" }
+            ]}
+            rows={sectionData.top_prices || []}
+          />
+        </TableCard>
+      </div>
+    </div>
+  );
+}
+
+const AGENT_LAYOUT = {
+  agent_intake:      { order: 0, color: "#388E3C", short: "Intake",      role: "Routes farmer asks" },
+  agent_fulfillment: { order: 1, color: "#4CAF50", short: "Fulfillment", role: "Stock + procurement" },
+  agent_crop_cycle:  { order: 2, color: "#FFA726", short: "Crop Cycle",  role: "Seasons + harvest" },
+  agent_market:      { order: 3, color: "#1B5E20", short: "Market",      role: "Buyer match + dispatch" },
+  agent_exception:   { order: 4, color: "#EF5350", short: "Exception",   role: "Human handoff" },
+};
+
+const STATUS_LABEL = { active: "Active", busy: "Busy", waiting: "Waiting", idle: "Idle" };
+const STATUS_TONE  = { active: "#17b897", busy: "#f5a524", waiting: "#6b7280", idle: "#94a3b8" };
+
+function ageLabel(sec) {
+  if (sec == null) return "no activity yet";
+  if (sec < 60) return `${sec}s ago`;
+  if (sec < 3600) return `${Math.floor(sec / 60)}m ago`;
+  return `${Math.floor(sec / 3600)}h ago`;
+}
+
+function PersonIcon({ color, pulsing }) {
+  return (
+    <svg viewBox="0 0 64 72" className="person-svg" aria-hidden>
+      {pulsing && <circle cx="32" cy="36" r="30" fill={color} opacity="0.14" className="person-pulse" />}
+      <circle cx="32" cy="20" r="11" fill={color} />
+      <path d="M 10 66 C 10 48, 54 48, 54 66 L 54 72 L 10 72 Z" fill={color} />
+      <circle cx="32" cy="20" r="11" fill="none" stroke="#ffffff" strokeWidth="1.5" opacity="0.6" />
+      <path d="M 26 18 Q 32 22 38 18" stroke="#ffffff" strokeWidth="1.4" fill="none" strokeLinecap="round" opacity="0.85" />
+    </svg>
+  );
+}
+
+function AgentPersonCard({ node, activity }) {
+  const meta = AGENT_LAYOUT[node.id] || { color: "#64748b", short: node.id, role: "" };
+  const status = activity?.status || "idle";
+  const pulsing = status === "active";
+  const current = activity?.current;
+  const recent = activity?.recent || [];
+  return (
+    <div className="agent-person-card" style={{ borderTopColor: meta.color }}>
+      <div className="agent-person-header">
+        <div className="agent-person-figure">
+          <PersonIcon color={meta.color} pulsing={pulsing} />
+          <span className="agent-status-dot" style={{ background: STATUS_TONE[status] }} />
+        </div>
+        <div className="agent-person-meta">
+          <div className="agent-person-name">{meta.short}</div>
+          <div className="agent-person-role">{meta.role}</div>
+          <div className="agent-person-stats">
+            <span className="chip chip-done">{node.completed} done</span>
+            <span className={`chip ${node.pending > 0 ? "chip-pending" : "chip-clear"}`}>{node.pending} pending</span>
+            <span className="chip chip-status" style={{ color: STATUS_TONE[status] }}>{STATUS_LABEL[status]}</span>
+          </div>
+        </div>
+      </div>
+      <div className="agent-person-current">
+        <div className="agent-current-label">Now working on</div>
+        {current ? (
+          <div className="agent-current-task">
+            <div className="agent-current-title">{current.title}</div>
+            <div className="agent-current-detail">{current.detail || "—"}</div>
+            <div className="agent-current-age">{ageLabel(activity?.last_activity_seconds_ago)}</div>
+          </div>
+        ) : (
+          <div className="agent-current-empty">Waiting for next signal</div>
+        )}
+      </div>
+      <div className="agent-person-recent">
+        {recent.slice(0, 3).map((t) => (
+          <div key={t.id} className="agent-recent-row">
+            <span className="agent-recent-bullet" style={{ background: meta.color }} />
+            <span className="agent-recent-title">{t.title}</span>
+            <span className="agent-recent-status">{t.status}</span>
+          </div>
+        ))}
+        {!recent.length && <div className="agent-recent-empty">No recent tasks</div>}
+      </div>
+    </div>
+  );
+}
+
+function AgentFlowCanvas({ flow }) {
+  const nodes = flow?.nodes || [];
+  const edges = flow?.edges || [];
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => (t + 1) % 10000), 60);
+    return () => clearInterval(id);
+  }, []);
+
+  const ordered = [...nodes].sort((a, b) => (AGENT_LAYOUT[a.id]?.order ?? 99) - (AGENT_LAYOUT[b.id]?.order ?? 99));
+  const W = 1000;
+  const H = 200;
+  const slots = ordered.length || 5;
+  const xFor = (idx) => 80 + idx * ((W - 160) / Math.max(1, slots - 1));
+  const yLane = 110;
+
+  const idToIdx = Object.fromEntries(ordered.map((n, i) => [n.id, i]));
+  const maxEdge = Math.max(1, ...edges.map((e) => e.count || 0));
+
+  return (
+    <div className="flow-canvas-wrap">
+      <svg viewBox={`0 0 ${W} ${H}`} className="flow-canvas-svg" preserveAspectRatio="xMidYMid meet">
+        <defs>
+          <linearGradient id="laneGrad" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stopColor="#e2e8f0" />
+            <stop offset="100%" stopColor="#f1f5f9" />
+          </linearGradient>
+        </defs>
+        <rect x="40" y={yLane - 30} width={W - 80} height="60" rx="30" fill="url(#laneGrad)" opacity="0.5" />
+        {edges.map((edge, idx) => {
+          const fi = idToIdx[edge.from];
+          const ti = idToIdx[edge.to];
+          if (fi == null || ti == null) return null;
+          const fx = xFor(fi);
+          const tx = xFor(ti);
+          const arcUp = edge.to === "agent_exception" || Math.abs(ti - fi) > 1;
+          const curveY = arcUp ? yLane - 60 - (idx % 2) * 18 : yLane;
+          const d = `M ${fx + 26} ${yLane} Q ${(fx + tx) / 2} ${curveY} ${tx - 26} ${yLane}`;
+          const active = edge.count > 0;
+          const thickness = active ? 2.2 + (edge.count / maxEdge) * 3.5 : 1.5;
+          const edgeColor = AGENT_LAYOUT[edge.from]?.color || "#388E3C";
+          const phase = (tick % 120) / 120;
+          const px = fx + 26 + (tx - fx - 52) * phase;
+          const py = yLane + (curveY - yLane) * 4 * phase * (1 - phase);
+          return (
+            <g key={idx}>
+              <path d={d} stroke={active ? edgeColor : "#94a3b8"} strokeWidth={thickness} fill="none" strokeLinecap="round" strokeDasharray={active ? "0" : "5 5"} opacity={active ? 0.75 : 0.45} />
+              {active && <circle cx={px} cy={py} r="5" fill={edgeColor} opacity="1" />}
+              <text x={(fx + tx) / 2} y={arcUp ? curveY - 6 : yLane - 16} textAnchor="middle" fontSize="11" fontWeight="600" fill="#1f2937">
+                {edge.label} · {edge.count}
+              </text>
+            </g>
+          );
+        })}
+        {ordered.map((node, i) => {
+          const meta = AGENT_LAYOUT[node.id] || { color: "#64748b", short: node.id };
+          const x = xFor(i);
+          const age = node.last_activity_seconds_ago;
+          const fresh = age != null && age < 120;
+          return (
+            <g key={node.id}>
+              {fresh && <circle cx={x} cy={yLane} r={28 + (tick % 20)} fill={meta.color} opacity={0.28 - (tick % 20) * 0.012} />}
+              <circle cx={x} cy={yLane} r="22" fill="#ffffff" stroke={meta.color} strokeWidth="3" />
+              <circle cx={x} cy={yLane} r="14" fill={meta.color} opacity="0.18" />
+              <text x={x} y={yLane + 4} textAnchor="middle" fontSize="12" fontWeight="700" fill={meta.color}>{meta.short.slice(0, 2).toUpperCase()}</text>
+              <text x={x} y={yLane + 46} textAnchor="middle" fontSize="11" fontWeight="600" fill="#0f172a">{meta.short}</text>
+              <text x={x} y={yLane + 60} textAnchor="middle" fontSize="10" fill="#64748b">{node.pending > 0 ? `${node.pending} pending` : "clear"}</text>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+function ThroughputTicker({ tasks }) {
+  if (!tasks || !tasks.length) {
+    return <div className="ticker-empty">No recent agent activity.</div>;
+  }
+  return (
+    <div className="agent-ticker">
+      {tasks.map((t) => {
+        const color = AGENT_LAYOUT[t.agent_id]?.color || "#64748b";
+        return (
+          <div key={t.id} className="ticker-row">
+            <span className="ticker-dot" style={{ background: color }} />
+            <span className="ticker-agent">{t.agent_name}</span>
+            <span className="ticker-title">{t.title}</span>
+            <span className="ticker-detail">{t.detail}</span>
+            <span className="ticker-time">{formatDateTime(t.created_at)}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function CommandCenterSection({ sectionData, handlers }) {
+  const summary = sectionData.summary || {};
+  const flow = sectionData.flow || { nodes: [], edges: [], throughput_last_10: [] };
+  const exceptions = sliceRows(sectionData.exceptions);
+  const recentAlerts = sliceRows(sectionData.recent_alerts);
+  const recentTasks = sliceRows(sectionData.recent_tasks);
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!autoRefresh) return undefined;
+    const id = setInterval(() => {
+      if (handlers.onRefreshSection) handlers.onRefreshSection("command");
+    }, 15000);
+    return () => clearInterval(id);
+  }, [autoRefresh, handlers]);
+
+  const autoActions = Number(summary.autonomous_input_issues || 0) + Number(summary.autonomous_dispatches || 0);
+  const humanExceptionsCount = Number(summary.human_exceptions || 0);
+
+  async function runCycle() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await handlers.onRunAgentCycle({ force: false });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const orderedNodes = [...(flow.nodes || [])].sort(
+    (a, b) => (AGENT_LAYOUT[a.id]?.order ?? 99) - (AGENT_LAYOUT[b.id]?.order ?? 99)
+  );
+
+  return (
+    <div className="stack command-page">
+      <section className="command-hero">
+        <div className="command-hero-kpis">
+          <StatCard label="Farmers Managed" value={number(summary.farmers_managed)} />
+          <StatCard label="Autonomous Actions" value={number(autoActions)} tone="normal" />
+          <StatCard label="Proactive Alerts" value={number(summary.proactive_alerts)} tone="medium" />
+          <StatCard label="Human Exceptions" value={number(humanExceptionsCount)} tone={humanExceptionsCount ? "high" : "normal"} />
+        </div>
+        <div className="command-hero-actions">
+          <label className="command-toggle">
+            <input type="checkbox" checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} />
+            <span>Auto-refresh 15s</span>
+          </label>
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={runCycle}
+            disabled={busy || !handlers.canAction("run_demo")}
+            title={!handlers.canAction("run_demo") ? "Current role cannot trigger the agent cycle" : "Run one autonomous agent cycle"}
+          >
+            {busy ? "Running..." : "Run Agent Cycle"}
+          </button>
+        </div>
+      </section>
+
+      <section className="content-block">
+        <div className="content-block-head">
+          <h3>Agent Workforce</h3>
+          <span className="content-block-hint">{orderedNodes.length} agents · live flow</span>
+        </div>
+        <div className="table-card glass-normal command-workforce">
+          <div className="agent-workforce-grid">
+            {orderedNodes.map((node) => (
+              <AgentPersonCard key={node.id} node={node} activity={flow.per_agent_activity?.[node.id]} />
+            ))}
+          </div>
+          <div className="flow-canvas-divider">
+            <span>Flow between agents</span>
+          </div>
+          <AgentFlowCanvas flow={flow} />
+        </div>
+      </section>
+
+      <div className="equal-grid">
+        <section className="content-block">
+          <div className="content-block-head">
+            <h3>Needs Human Attention</h3>
+            <span className="content-block-hint">{exceptions.length} open</span>
+          </div>
+          <div className="table-card glass-normal">
+            <DataTable
+              columns={[
+                { key: "type", label: "Type" },
+                { key: "farmer_name", label: "Farmer / Entity" },
+                { key: "status", label: "Status", render: (value) => <SeverityBadge value={value} /> },
+                { key: "owner", label: "Owner" },
+                { key: "reason", label: "Reason" }
+              ]}
+              rows={exceptions}
+            />
+          </div>
+        </section>
+        <section className="content-block">
+          <div className="content-block-head">
+            <h3>Live Throughput</h3>
+            <span className="content-block-hint">last 10 actions</span>
+          </div>
+          <div className="table-card glass-normal">
+            <ThroughputTicker tasks={flow.throughput_last_10 || []} />
+          </div>
+        </section>
+      </div>
+
+      <TableCard title="Latest Agent Tasks" collapsible>
+        <DataTable
+          columns={[
+            { key: "created_at", label: "Created", render: (value) => formatDateTime(value) },
+            { key: "agent_name", label: "Agent" },
+            { key: "title", label: "Task" },
+            { key: "status", label: "Status", render: (value) => <SeverityBadge value={value} /> },
+            { key: "detail", label: "Detail" }
+          ]}
+          rows={recentTasks}
+        />
+      </TableCard>
+
+      <TableCard title="Proactive Alerts" collapsible>
+        <DataTable
+          columns={[
+            { key: "created_at", label: "Created", render: (value) => formatDateTime(value) },
+            { key: "agent_name", label: "Agent" },
+            { key: "farmer_name", label: "Farmer" },
+            { key: "crop", label: "Crop" },
+            { key: "alert_type", label: "Alert Type" },
+            { key: "text", label: "Message" }
+          ]}
+          rows={recentAlerts}
+        />
+      </TableCard>
+    </div>
+  );
+}
+
+function RegistrySection({ sectionData, handlers }) {
+  const fpos = sliceRows(sectionData.fpos);
+  const farmers = sortRowsByNewestId(sliceRows(sectionData.farmers));
+  const plots = sliceRows(sectionData.plots);
+  const seasons = sliceRows(sectionData.seasons);
+  const communicationProfiles = sliceRows(sectionData.communicationProfiles);
+  const districts = sectionData.geographies?.districts || [];
+  const villages = sectionData.geographies?.villages || [];
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [form, setForm] = useState({ fpo_id: fpos[0]?.id || "", name: "", village: "", primary_crop: "Onion", land_size_ha: "2.2", language: "Marathi" });
+
+  useEffect(() => {
+    if (!form.fpo_id && fpos.length) setForm((current) => ({ ...current, fpo_id: fpos[0].id }));
+  }, [form.fpo_id, fpos]);
+
+  return (
+    <div className="stack">
+      <div className="section-toolbar">
+        <div className="stat-grid">
+          <StatCard label="FPOs" value={number(sectionData.fpos?.total)} />
+          <StatCard label="Farmers" value={number(sectionData.farmers?.total)} />
+          <StatCard label="Plots" value={number(sectionData.plots?.total)} />
+          <StatCard label="Seasons" value={number(sectionData.seasons?.total)} />
+        </div>
+        <button type="button" className="btn-primary" onClick={() => setDrawerOpen(true)} disabled={!handlers.canAction("create_farmer")}>Add Farmer</button>
+      </div>
+
+      <div className="stack">
+        <TableCard title="FPO Directory" collapsible>
+          <DataTable enableSearch enableFilters columns={[{ key: "name", label: "FPO" }, { key: "district", label: "District" }, { key: "primary_crops", label: "Primary Crops" }, { key: "members_count", label: "Members", render: (value) => number(value) }, { key: "warehouse_capacity_mt", label: "Warehouse (MT)" }]} rows={fpos} />
+        </TableCard>
+        <TableCard title="Farmer Registry" collapsible>
+          <DataTable enableSearch enableFilters columns={[{ key: "name", label: "Farmer" }, { key: "fpo_name", label: "FPO" }, { key: "village", label: "Village" }, { key: "primary_crop", label: "Crop" }, { key: "land_size_ha", label: "Land (ha)", render: (value) => number(value, 2) }, { key: "irrigation_type", label: "Irrigation" }, { key: "soil_type", label: "Soil" }]} rows={farmers} />
+        </TableCard>
+        <TableCard title="Plot Intelligence" collapsible>
+          <DataTable enableSearch enableFilters columns={[{ key: "id", label: "Plot ID" }, { key: "farmer_id", label: "Farmer" }, { key: "crop_current", label: "Crop" }, { key: "area_ha", label: "Area (ha)", render: (value) => number(value, 2) }, { key: "irrigation_source", label: "Irrigation" }, { key: "soil_type", label: "Soil" }]} rows={plots} />
+        </TableCard>
+        <TableCard title="Season Register" collapsible>
+          <DataTable enableSearch enableFilters columns={[{ key: "plot_id", label: "Plot" }, { key: "crop_name", label: "Crop" }, { key: "seed_variety", label: "Variety" }, { key: "sowing_date", label: "Sowing" }, { key: "expected_harvest", label: "Harvest" }]} rows={seasons} />
+        </TableCard>
+        <TableCard title="Communication Profiles" collapsible>
+          <DataTable enableSearch enableFilters columns={[{ key: "farmer_id", label: "Farmer ID" }, { key: "language", label: "Language" }, { key: "preferred_mode", label: "Mode" }, { key: "whatsapp_opt_in", label: "WhatsApp", render: (value) => (value ? "Yes" : "No") }]} rows={communicationProfiles} />
+        </TableCard>
+        <TableCard title="Geographies" collapsible>
+          <div className="equal-grid"><DataTable enableSearch enableFilters columns={[{ key: "name", label: "District" }, { key: "state_id", label: "State ID" }]} rows={districts} /><DataTable enableSearch enableFilters columns={[{ key: "name", label: "Village" }, { key: "district_id", label: "District" }]} rows={villages} /></div>
+        </TableCard>
+      </div>
+
+      <Drawer open={drawerOpen} title="Add Farmer" subtitle="Create a farmer, communication profile, default plot, and active season." onClose={() => setDrawerOpen(false)}>
+        <form className="drawer-form" onSubmit={(event) => { event.preventDefault(); submitAndMaybeClose(handlers.onCreateFarmer({ ...form, land_size_ha: Number(form.land_size_ha) }), () => setDrawerOpen(false)); }}>
+          <label><span>FPO</span><select value={form.fpo_id} onChange={(event) => setForm({ ...form, fpo_id: event.target.value })}>{fpos.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label>
+          <label><span>Name</span><input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required /></label>
+          <label><span>Village</span><input value={form.village} onChange={(event) => setForm({ ...form, village: event.target.value })} required /></label>
+          <label><span>Primary crop</span><input value={form.primary_crop} onChange={(event) => setForm({ ...form, primary_crop: event.target.value })} required /></label>
+          <label><span>Land (ha)</span><input type="number" step="0.1" value={form.land_size_ha} onChange={(event) => setForm({ ...form, land_size_ha: event.target.value })} /></label>
+          <label><span>Language</span><input value={form.language} onChange={(event) => setForm({ ...form, language: event.target.value })} /></label>
+          <div className="drawer-button-stack"><button type="button" className="btn-ghost" onClick={() => setDrawerOpen(false)}>Cancel</button><button type="submit" className="btn-primary">Create farmer</button></div>
+        </form>
+      </Drawer>
+    </div>
+  );
+}
+
+function WhatsAppDemoSectionV2({ sectionData, handlers }) {
+  const lookups = sectionData.lookups || {};
+  const allInbox = sliceRows(sectionData.inbox);
+  const inbox = allInbox.filter((row) => row.escalated);
+  const farmerOptions = lookups.farmers || [];
+  const canCommunicate = handlers.canAction("communicate");
+  const agentConfig = sectionData.agentConfig || {};
+  const [selectedFarmerId, setSelectedFarmerId] = useState("");
+  const [selectedMessageId, setSelectedMessageId] = useState("");
+  const [farmerText, setFarmerText] = useState("");
+  const [officeText, setOfficeText] = useState("");
+  const [farmerThreadRows, setFarmerThreadRows] = useState([]);
+  const [officeThreadRows, setOfficeThreadRows] = useState([]);
+  const [farmerThreadLoading, setFarmerThreadLoading] = useState(false);
+  const [officeThreadLoading, setOfficeThreadLoading] = useState(false);
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [sortOrder, setSortOrder] = useState("newest");
+
+  const categoryOptions = Array.from(new Set(inbox.map((r) => r.escalation_category).filter((c) => c && c !== "none")));
+  const filteredInbox = inbox
+    .filter((r) => typeFilter === "all" || r.escalation_category === typeFilter)
+    .slice()
+    .sort((a, b) => {
+      const da = new Date(a.timestamp).getTime();
+      const db = new Date(b.timestamp).getTime();
+      return sortOrder === "newest" ? db - da : da - db;
+    });
+  const pendingTickets = filteredInbox.filter((row) => row.status === "pending");
+  const inProgressTickets = filteredInbox.filter((row) => row.status === "in_progress");
+  const resolvedTickets = filteredInbox.filter((row) => row.status === "resolved");
+  const selectedTicket = inbox.find((row) => row.id === selectedMessageId) || null;
+  const selectedFarmer = farmerOptions.find((row) => row.id === selectedFarmerId) || null;
+  const selectedTicketFarmer = selectedTicket ? farmerOptions.find((row) => row.id === selectedTicket.farmer_id) : null;
+
+  // One-time init: select first ticket and sync farmer to it
+  const initDone = useState(false);
+  useEffect(() => {
+    if (initDone[0]) return;
+    const first = pendingTickets[0] || inProgressTickets[0] || resolvedTickets[0];
+    if (first) {
+      setSelectedMessageId(first.id);
+      setSelectedFarmerId(first.farmer_id);
+      initDone[1](true);
+    } else if (!selectedFarmerId && farmerOptions.length) {
+      setSelectedFarmerId(farmerOptions[0].id);
+    }
+  }, [inbox, farmerOptions, initDone, pendingTickets, inProgressTickets, resolvedTickets, selectedFarmerId]);
+
+  useEffect(() => {
+    if (selectedMessageId && !inbox.some((row) => row.id === selectedMessageId)) {
+      setSelectedMessageId("");
+    }
+  }, [inbox, selectedMessageId]);
+
+  useEffect(() => {
+    let active = true;
+    async function loadThread() {
+      if (!selectedFarmerId) {
+        setFarmerThreadRows([]);
+        return;
+      }
+      setFarmerThreadLoading(true);
+      try {
+        const payload = await api.communicationThread(selectedFarmerId, 80);
+        if (active) {
+          const sortedRows = sliceRows(payload).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+          setFarmerThreadRows(sortedRows);
+        }
+      } finally {
+        if (active) setFarmerThreadLoading(false);
+      }
+    }
+    loadThread();
+    return () => {
+      active = false;
+    };
+  }, [selectedFarmerId, sectionData.thread?.total, sectionData.inbox?.total]);
+
+  useEffect(() => {
+    let active = true;
+    async function loadThread() {
+      if (!selectedTicket?.farmer_id) {
+        setOfficeThreadRows([]);
+        return;
+      }
+      setOfficeThreadLoading(true);
+      try {
+        const payload = await api.communicationThread(selectedTicket.farmer_id, 80);
+        if (active) {
+          const sortedRows = sliceRows(payload).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+          setOfficeThreadRows(sortedRows);
+        }
+      } finally {
+        if (active) setOfficeThreadLoading(false);
+      }
+    }
+    loadThread();
+    return () => {
+      active = false;
+    };
+  }, [selectedTicket?.farmer_id, selectedTicket?.id, sectionData.thread?.total, sectionData.inbox?.total]);
+
+  async function openTicket(ticket) {
+    if (!ticket) return;
+    setSelectedMessageId(ticket.id);
+    setSelectedFarmerId(ticket.farmer_id);
+    setOfficeText("");
+    if (canCommunicate && ticket.status === "pending") {
+      await handlers.onSetMessageStatus(ticket.id, "in_progress");
+    }
+  }
+
+  async function submitFarmerMessage(event) {
+    event.preventDefault();
+    if (!canCommunicate || !selectedFarmerId || !farmerText.trim()) return;
+    await handlers.onSendWhatsApp({ farmer_id: selectedFarmerId, text: farmerText.trim(), auto_reply: false });
+    setFarmerText("");
+  }
+
+  async function submitOfficeReply(event) {
+    event.preventDefault();
+    if (!canCommunicate || !selectedTicket || !officeText.trim()) return;
+    await handlers.onOfficeReply({ farmer_id: selectedTicket.farmer_id, text: officeText.trim(), message_id: selectedTicket.id });
+    setOfficeText("");
+  }
+
+  async function resolveWithoutReply() {
+    if (!canCommunicate || !selectedTicket) return;
+    await handlers.onSetMessageStatus(selectedTicket.id, "resolved");
+  }
+
+  const resolvedReply = selectedTicket
+    ? [...officeThreadRows]
+        .reverse()
+        .find((row) => row.direction === "outgoing" && (!row.message_id || row.message_id === selectedTicket.id))
+    : null;
+  const timeline = selectedTicket
+    ? [
+        { label: "Created", value: selectedTicket.timestamp },
+        { label: "Opened", value: selectedTicket.in_progress_at || null },
+        { label: "Replied", value: selectedTicket.resolved_at || resolvedReply?.timestamp || null }
+      ]
+    : [];
+
+  function statusLabel(s) {
+    if (s === "pending") return "New";
+    if (s === "in_progress") return "In Progress";
+    return "Resolved";
+  }
+  function statusClass(s) {
+    if (s === "pending") return "badge-warn";
+    if (s === "in_progress") return "badge-info";
+    return "badge-ok";
+  }
+  function laneClass(s) {
+    if (s === "pending") return "jira-lane-warn";
+    if (s === "in_progress") return "jira-lane-info";
+    return "jira-lane-ok";
+  }
+  function actionLabelForStatus(s) {
+    if (s === "pending") return "Start";
+    if (s === "in_progress") return "Resolve";
+    return "Reopen";
+  }
+  function nextStatusForTicket(s) {
+    if (s === "pending") return "in_progress";
+    if (s === "in_progress") return "resolved";
+    return "in_progress";
+  }
+  async function moveTicket(ticket, nextStatus) {
+    if (!canCommunicate || !ticket || ticket.status === nextStatus) return;
+    setSelectedMessageId(ticket.id);
+    setSelectedFarmerId(ticket.farmer_id);
+    await handlers.onSetMessageStatus(ticket.id, nextStatus);
+  }
+
+  const boardColumns = [
+    { id: "pending", title: "New", subtitle: "Fresh incoming asks", rows: pendingTickets },
+    { id: "in_progress", title: "In Progress", subtitle: "Being worked by the office", rows: inProgressTickets },
+    { id: "resolved", title: "Resolved", subtitle: "Closed or replied", rows: resolvedTickets }
+  ];
+
+  return (
+    <div className="stack">
+      <div className="whatsapp-layout">
+        <div className="phone-column">
+          <label className="field-inline"><span>Farmer phone:</span><select value={selectedFarmerId} onChange={(event) => { const fid = event.target.value; setSelectedFarmerId(fid); const ticket = inbox.find((row) => row.farmer_id === fid); setSelectedMessageId(ticket ? ticket.id : ""); }}>{farmerOptions.map((row) => <option key={row.id} value={row.id}>{row.name} - {row.village}</option>)}</select></label>
+          <div className="phone-frame">
+            <div className="phone-screen">
+              <div className="wa-header"><div className="wa-avatar" /><div><div className="wa-name">FPO Help Desk</div><div className="wa-status">{selectedFarmer?.name || "No farmer selected"}</div></div></div>
+              <div className="wa-thread">
+                {farmerThreadLoading ? <p className="wa-queue-empty">Loading thread...</p> : null}
+                {!farmerThreadLoading && !farmerThreadRows.length ? <p className="wa-queue-empty">No messages yet for this farmer.</p> : null}
+                {farmerThreadRows.slice(-18).map((row) => (
+                  <div key={row.id} className={`wa-bubble ${row.direction === "incoming" ? "outgoing" : "incoming"}`}>
+                    <div>{row.text}</div>
+                    <div className="wa-time">{formatDateTime(row.timestamp)}</div>
+                  </div>
+                ))}
+              </div>
+              <form className="wa-input-bar" onSubmit={submitFarmerMessage}>
+                <input className="wa-input" value={farmerText} onChange={(event) => setFarmerText(event.target.value)} placeholder="Type farmer message..." />
+                <button type="submit" className="wa-send-btn" disabled={!canCommunicate || !selectedFarmerId || !farmerText.trim()}><span>{">"}</span></button>
+              </form>
+            </div>
+          </div>
+          <div className="scenario-pill-row">
+            <button type="button" className="btn-ghost btn-small" onClick={() => setFarmerText(`Need 5 bags urea for ${selectedFarmer?.primary_crop || "crop"}.`)}>Input Request</button>
+            <button type="button" className="btn-ghost btn-small" onClick={() => setFarmerText(`What is today's mandi rate for ${selectedFarmer?.primary_crop || "crop"}?`)}>Price Query</button>
+            <button type="button" className="btn-ghost btn-small" onClick={() => setFarmerText(`Leaves on my ${selectedFarmer?.primary_crop || "crop"} are yellow.`)}>Disease Query</button>
+          </div>
+        </div>
+
+        <div className="office-console glass-normal">
+          <div className="jira-board-layout">
+            <div className="jira-board-panel">
+              <div className="jira-board-head">
+                <h3>Human Exception Desk</h3>
+                <AgentStatusBadge agentConfig={agentConfig} />
+              </div>
+              <div className="table-controls">
+                <div className="table-filter-grid">
+                  <label className="table-control">
+                    <span>Filter Type</span>
+                    <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
+                      <option value="all">All</option>
+                      {categoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </label>
+                  <label className="table-control">
+                    <span>Sort By Date</span>
+                    <select value={sortOrder} onChange={(e) => setSortOrder(e.target.value)}>
+                      <option value="newest">Newest first</option>
+                      <option value="oldest">Oldest first</option>
+                    </select>
+                  </label>
+                </div>
+                <div className="table-controls-summary">
+                  <span>Showing {filteredInbox.length} of {inbox.length}</span>
+                </div>
+              </div>
+
+              <div className="jira-board-grid">
+                {boardColumns.map((column) => (
+                  <section key={column.id} className={`jira-lane ${laneClass(column.id)}`}>
+                    <div className="jira-lane-head">
+                      <div>
+                        <h4>{column.title}</h4>
+                        <p>{column.subtitle}</p>
+                      </div>
+                      <span className="jira-lane-count">{column.rows.length}</span>
+                    </div>
+
+                    <div className="jira-lane-list">
+                      {!column.rows.length ? <p className="jira-lane-empty">No tickets in this lane.</p> : null}
+                      {column.rows.map((row) => (
+                        <button key={row.id} type="button" className={`jira-card ${selectedMessageId === row.id ? "active" : ""}`} onClick={() => openTicket(row)}>
+                          <div className="jira-card-top">
+                            <span className="jira-ticket-key">{row.id.slice(-6).toUpperCase()}</span>
+                            <span className={`badge ${statusClass(row.status)}`}>{statusLabel(row.status)}</span>
+                          </div>
+                          <div className="jira-card-body">
+                            <strong className="jira-ticket-summary">{row.text || "No message"}</strong>
+                            <span className="jira-ticket-meta">{row.farmer_name}</span>
+                            <span className="jira-ticket-submeta">{formatDateTime(row.timestamp)}</span>
+                            {row.escalation_category && row.escalation_category !== "none" ? (
+                              <span className="jira-ticket-submeta" style={{ marginTop: 4, textTransform: "capitalize" }}>Type: {row.escalation_category}</span>
+                            ) : null}
+                          </div>
+                          <div className="jira-card-bottom">
+                            <IntentChip value={row.intent} />
+                            <button
+                              type="button"
+                              className="btn-ghost btn-small jira-card-action"
+                              disabled={!canCommunicate}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                moveTicket(row, nextStatusForTicket(row.status));
+                              }}
+                            >
+                              {actionLabelForStatus(row.status)}
+                            </button>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+                ))}
+              </div>
+            </div>
+
+            <div className="jira-detail-panel">
+              {selectedTicket ? (
+                <>
+                  <div className="jira-detail-head">
+                    <div>
+                      <h4>{selectedTicketFarmer?.name || selectedTicket.farmer_name}</h4>
+                      <span className="jira-detail-id">{selectedTicket.id}</span>
+                    </div>
+                    <div className="jira-detail-head-tags">
+                      <IntentChip value={selectedTicket.intent} />
+                      <span className={`badge ${statusClass(selectedTicket.status)}`}>{statusLabel(selectedTicket.status)}</span>
+                    </div>
+                  </div>
+
+                  <div className="jira-detail-body">
+                    <div className="jira-detail-summary-card">
+                      <div className="jira-detail-summary-row">
+                        <span className="jira-detail-field">Reporter</span>
+                        <strong>{selectedTicketFarmer?.name || selectedTicket.farmer_name}</strong>
+                      </div>
+                      <div className="jira-detail-summary-row">
+                        <span className="jira-detail-field">Village</span>
+                        <span>{selectedTicketFarmer?.village || "Not set"}</span>
+                      </div>
+                      <div className="jira-detail-summary-row jira-detail-summary-text">
+                        <span className="jira-detail-field">Issue</span>
+                        <p>{selectedTicket.text || "No message provided."}</p>
+                      </div>
+                    </div>
+
+                    <div className="jira-timeline">
+                      {timeline.map((item) => (
+                        <div key={item.label} className={`jira-timeline-item ${item.value ? "is-complete" : ""}`}>
+                          <span className="jira-timeline-dot" />
+                          <div>
+                            <strong>{item.label}</strong>
+                            <p>{item.value ? formatDateTime(item.value) : "Pending"}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="jira-thread">
+                      {officeThreadLoading ? <p className="wa-queue-empty">Loading...</p> : null}
+                      {!officeThreadLoading && !officeThreadRows.length ? <p className="wa-queue-empty">No messages yet.</p> : null}
+                      {officeThreadRows.slice(-12).map((row) => (
+                        <div key={row.id} className={`jira-msg ${row.direction === "incoming" ? "incoming" : "outgoing"}`}>
+                          <span className="jira-msg-author">{row.direction === "incoming" ? selectedTicketFarmer?.name || selectedTicket.farmer_name : "FPO Office"}</span>
+                          <p className="jira-msg-text">{row.text}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <form className="jira-reply" onSubmit={submitOfficeReply}>
+                    <textarea rows={2} value={officeText} onChange={(event) => setOfficeText(event.target.value)} placeholder={`Reply to ${selectedTicket.farmer_name}...`} />
+                    <div className="jira-reply-actions">
+                      <button type="submit" className="btn-primary" disabled={!canCommunicate || !officeText.trim()}>Send</button>
+                      <button type="button" className="btn-ghost" disabled={!canCommunicate || !selectedTicket || !agentConfig.agent_available} onClick={() => handlers.onAgentReply(selectedTicket.id)}>Agent Reply</button>
+                      {selectedTicket.status !== "in_progress" ? (
+                        <button type="button" className="btn-ghost" disabled={!canCommunicate} onClick={() => moveTicket(selectedTicket, "in_progress")}>Mark In Progress</button>
+                      ) : null}
+                      {selectedTicket.status !== "resolved" ? (
+                        <button type="button" className="btn-ghost" disabled={!canCommunicate} onClick={resolveWithoutReply}>Resolve</button>
+                      ) : (
+                        <button type="button" className="btn-ghost" disabled={!canCommunicate} onClick={() => moveTicket(selectedTicket, "in_progress")}>Reopen</button>
+                      )}
+                    </div>
+                  </form>
+                </>
+              ) : (
+                <div className="jira-detail-empty">
+                  <p>Select a ticket to view details</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function OperationsSection({ sectionData, handlers }) {
+  const demandsAll = sliceRows(sectionData.demands);
+  const reviewQueue = sliceRows(sectionData.reviewQueue);
+  const demands = demandsAll.filter((row) => row.status !== "needs_review");
+  const inventory = sliceRows(sectionData.inventory);
+  const inventoryTransactions = sliceRows(sectionData.inventoryTransactions);
+  const collections = sliceRows(sectionData.collections);
+  const settlements = sliceRows(sectionData.settlements);
+  const procurement = sectionData.procurement || { purchase_requests: [], purchase_orders: [], goods_receipts: [], input_issues: [], pending_approvals: [] };
+  const lookups = sectionData.lookups || {};
+  const capturedDemands = demands.filter((row) => row.status === "captured");
+  const fpoIdDefault = demands[0]?.fpo_id || lookups.fpos?.[0]?.id || "";
+  const [tab, setTab] = useState("demands");
+  const [drawer, setDrawer] = useState("");
+  const [prForm, setPrForm] = useState({ fpo_id: fpoIdDefault, item_id: lookups.inputs?.[0]?.id || "INPUT_0001", total_qty: "80", supplier_id: lookups.suppliers?.[0]?.id || "SUP_0001" });
+  const [grnForm, setGrnForm] = useState({ po_id: "", qty_received: "70", damaged_qty: "2" });
+  const [aggregateForm, setAggregateForm] = useState({ fpo_id: fpoIdDefault, item_id: demands[0]?.item_id || lookups.inputs?.[0]?.id || "" });
+  const [issueForm, setIssueForm] = useState({ farmer_id: lookups.farmers?.[0]?.id || demands[0]?.farmer_id || "", item_id: demands[0]?.item_id || lookups.inputs?.[0]?.id || "", qty_issued: "8" });
+  const [collectionForm, setCollectionForm] = useState({ farmer_id: lookups.farmers?.[0]?.id || "", crop: demands[0]?.crop || "Onion", quantity_qtl: "16", grade: "A", moisture_pct: "11.5", collection_center: "Main Center" });
+  const pendingApprovals = (procurement.pending_approvals || []).slice(0, 8);
+
+  useEffect(() => {
+    if (fpoIdDefault && !prForm.fpo_id) setPrForm((current) => ({ ...current, fpo_id: fpoIdDefault }));
+    if (!aggregateForm.fpo_id && fpoIdDefault) setAggregateForm((current) => ({ ...current, fpo_id: fpoIdDefault }));
+    if (!aggregateForm.item_id && lookups.inputs?.[0]?.id) setAggregateForm((current) => ({ ...current, item_id: lookups.inputs[0].id }));
+    if (!issueForm.farmer_id && lookups.farmers?.[0]?.id) setIssueForm((current) => ({ ...current, farmer_id: lookups.farmers[0].id }));
+    if (!issueForm.item_id && lookups.inputs?.[0]?.id) setIssueForm((current) => ({ ...current, item_id: lookups.inputs[0].id }));
+    if (!collectionForm.farmer_id && lookups.farmers?.[0]?.id) setCollectionForm((current) => ({ ...current, farmer_id: lookups.farmers[0].id }));
+    const firstPo = procurement.purchase_orders?.[0];
+    if (firstPo && !grnForm.po_id) setGrnForm((current) => ({ ...current, po_id: firstPo.id }));
+  }, [aggregateForm.fpo_id, aggregateForm.item_id, collectionForm.farmer_id, fpoIdDefault, grnForm.po_id, issueForm.farmer_id, issueForm.item_id, lookups, prForm.fpo_id, procurement.purchase_orders]);
+
+  const tabs = [{ id: "demands", label: "Demands" }, { id: "procurement", label: "Procurement" }, { id: "inventory", label: "Inventory" }, { id: "collections", label: "Collections" }, { id: "settlements", label: "Settlements" }];
+
+  return (
+    <div className="stack">
+      <div className="operations-subnav glass-light">{tabs.map((item) => <button key={item.id} type="button" className={`operations-tab ${tab === item.id ? "active" : ""}`} onClick={() => setTab(item.id)}>{item.label}</button>)}</div>
+      <p className="info-banner" style={{ margin: 0 }}>{
+        tab === "demands" ? "Farmer input requests land here (from Farmer Chat or manual entry). Low-confidence auto-captures sit in the Review Queue for FPO office approval. Approved rows aggregate into Purchase Requests."
+        : tab === "procurement" ? "Aggregated demands become Purchase Requests → approved → Purchase Orders → Goods Receipts. Linked farmer demands shown per PR."
+        : tab === "inventory" ? "Stock on hand at each FPO. Issuing inputs deducts stock and closes matching farmer demand rows."
+        : tab === "collections" ? "Produce received from farmers post-harvest. Grading + moisture feed settlement and sales allocation."
+        : "Farmer payouts generated from collections. Approvals and paid/pending status tracked here."
+      }</p>
+      {tab === "demands" ? (
+        <div className="stack">
+          <div className="section-toolbar">
+            <div className="stat-grid">
+              <StatCard label="Captured (ready)" value={number(capturedDemands.length)} />
+              <StatCard label="Review Queue" value={number(reviewQueue.length)} tone={reviewQueue.length ? "high" : undefined} badge={reviewQueue.length ? "Needs review" : undefined} />
+              <StatCard label="Aggregated" value={number(demands.filter((row) => row.status === "aggregated").length)} tone="medium" />
+              <StatCard label="Issued" value={number(demands.filter((row) => row.status === "issued").length)} />
+            </div>
+            <button type="button" className="btn-primary" onClick={() => setDrawer("aggregate")} disabled={!handlers.canAction("aggregate_demands") || !capturedDemands.length}>Aggregate to PR</button>
+          </div>
+          {reviewQueue.length ? (
+            <TableCard title={`Review Queue — ${reviewQueue.length} auto-captured from farmer chat (trust < 80%)`}>
+              <DataTable
+                columns={[
+                  { key: "farmer_id", label: "Farmer" },
+                  { key: "item_name", label: "Item (guess)" },
+                  { key: "requested_qty", label: "Qty (guess)" },
+                  { key: "crop", label: "Crop" },
+                  { key: "trust_score", label: "Trust", render: (value) => <span className={`badge ${value >= 80 ? "tone-ok" : value >= 50 ? "tone-medium" : "tone-high"}`}>{value}%</span> },
+                  { key: "source_text", label: "Original message", render: (value) => <span style={{ fontStyle: "italic", color: "#555" }}>"{value}"</span> },
+                  { key: "id", label: "Action", render: (_v, row) => (
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <InlineConfirmAction label="Approve" disabled={!handlers.canAction("aggregate_demands")} onConfirm={() => handlers.onApproveDemandReview(row.id, {})} />
+                      <InlineConfirmAction label="Reject" disabled={!handlers.canAction("aggregate_demands")} onConfirm={() => handlers.onRejectDemandReview(row.id, {})} />
+                    </div>
+                  ) }
+                ]}
+                rows={reviewQueue}
+              />
+            </TableCard>
+          ) : null}
+          <TableCard title="Input Demand Feed">
+            <DataTable
+              enableSearch
+              enableFilters
+              columns={[
+                { key: "id", label: "Demand ID" },
+                { key: "farmer_id", label: "Farmer" },
+                { key: "item_name", label: "Item" },
+                { key: "requested_qty", label: "Qty", disableFilter: true },
+                { key: "crop", label: "Crop" },
+                { key: "source", label: "Source", render: (value) => <span className={`badge ${value === "farmer_chat" ? "tone-info" : "tone-neutral"}`}>{value === "farmer_chat" ? "Farmer Chat" : "Manual"}</span> },
+                { key: "status", label: "Status", render: (value) => <SeverityBadge value={value} /> }
+              ]}
+              rows={demands}
+            />
+          </TableCard>
+        </div>
+      ) : null}
+      {tab === "procurement" ? <div className="stack"><div className="section-toolbar"><div className="stat-grid"><StatCard label="Purchase Requests" value={number((procurement.purchase_requests || []).length)} /><StatCard label="Purchase Orders" value={number((procurement.purchase_orders || []).length)} /><StatCard label="Goods Receipts" value={number((procurement.goods_receipts || []).length)} /></div><div className="toolbar-actions"><button type="button" className="btn-primary" onClick={() => setDrawer("pr")} disabled={!handlers.canAction("create_pr")}>Create PR</button><button type="button" className="btn-ghost" onClick={() => setDrawer("grn")} disabled={!handlers.canAction("create_grn")}>Create GRN</button></div></div><TableCard title="Purchase Requests"><DataTable columns={[{ key: "id", label: "PR ID" }, { key: "item_name", label: "Item" }, { key: "total_qty", label: "Qty" }, { key: "supplier_name", label: "Supplier" }, { key: "input_demand_ids", label: "Linked farmer demands", render: (value) => <span>{Array.isArray(value) ? value.length : 0}</span> }, { key: "approval_status", label: "Status", render: (value) => <SeverityBadge value={value} /> }, { key: "id", label: "Action", render: (_value, row) => row.approval_status !== "approved" ? <InlineConfirmAction label="Approve" disabled={!handlers.canAction("approve_pr")} onConfirm={() => handlers.onApprovePurchaseRequest(row.id)} /> : "Approved" }]} rows={procurement.purchase_requests || []} /></TableCard><TableCard title="Goods Receipt History"><DataTable columns={[{ key: "id", label: "GRN" }, { key: "po_id", label: "PO" }, { key: "item_name", label: "Item" }, { key: "qty_received", label: "Received" }, { key: "receipt_date", label: "Date" }]} rows={procurement.goods_receipts || []} /></TableCard></div> : null}
+      {tab === "inventory" ? <div className="stack"><div className="section-toolbar"><div className="stat-grid"><StatCard label="Inventory Rows" value={number(sectionData.inventory?.total)} /><StatCard label="Low Stock Items" value={number(inventory.filter((row) => row.stock_status === "low").length)} tone="high" badge="High" /><StatCard label="Issue Transactions" value={number((procurement.input_issues || []).length)} /></div><button type="button" className="btn-primary" onClick={() => setDrawer("issue")} disabled={!handlers.canAction("issue_inputs")}>Issue Inputs</button></div><TableCard title="Inventory Snapshot"><DataTable columns={[{ key: "fpo_id", label: "FPO" }, { key: "item_name", label: "Item" }, { key: "current_stock", label: "Stock" }, { key: "stock_status", label: "Status", render: (value) => <SeverityBadge value={value} /> }]} rows={inventory} /></TableCard><TableCard title="Inventory Ledger"><DataTable columns={[{ key: "txn_date", label: "Date" }, { key: "item_name", label: "Item" }, { key: "txn_type", label: "Type" }, { key: "qty", label: "Qty" }, { key: "reference_id", label: "Reference" }]} rows={inventoryTransactions} /></TableCard></div> : null}
+      {tab === "collections" ? <div className="stack"><div className="section-toolbar"><div className="stat-grid"><StatCard label="Collections" value={number(sectionData.collections?.total)} /><StatCard label="Grade A" value={number(collections.filter((row) => row.grade === "A").length)} /><StatCard label="Allocated" value={number(collections.filter((row) => row.status === "allocated_to_order").length)} tone="medium" /></div><button type="button" className="btn-primary" onClick={() => setDrawer("collection")} disabled={!handlers.canAction("record_collection")}>Record Collection</button></div><TableCard title="Produce Collections"><DataTable columns={[{ key: "id", label: "Collection" }, { key: "farmer_name", label: "Farmer" }, { key: "crop", label: "Crop" }, { key: "quantity_qtl", label: "Qty (qtl)" }, { key: "grade", label: "Grade" }, { key: "status", label: "Status", render: (value) => <SeverityBadge value={value} /> }]} rows={collections} /></TableCard></div> : null}
+      {tab === "settlements" ? <div className="stack"><div className="section-toolbar"><div className="stat-grid"><StatCard label="Pending Settlements" value={number(settlements.filter((row) => row.payment_status === "pending").length)} tone="high" badge="High" /><StatCard label="Pending Approvals" value={number(pendingApprovals.filter((row) => row.status === "pending").length)} tone="medium" /><StatCard label="Paid Settlements" value={number(settlements.filter((row) => row.payment_status === "paid").length)} /></div><button type="button" className="btn-primary" onClick={() => handlers.onGenerateSettlements({})} disabled={!handlers.canAction("generate_settlements")}>Generate Settlements</button></div><TableCard title="Settlement Status"><DataTable columns={[{ key: "id", label: "Settlement" }, { key: "farmer_id", label: "Farmer" }, { key: "crop", label: "Crop" }, { key: "net_amount", label: "Net", render: (value) => currency(value) }, { key: "payment_status", label: "Status", render: (value) => <SeverityBadge value={value} /> }, { key: "id", label: "Action", render: (_value, row) => row.payment_status !== "paid" ? <InlineConfirmAction label="Mark Paid" disabled={!handlers.canAction("release_settlement")} onConfirm={() => handlers.onMarkSettlementPaid(row.id)} /> : "Paid" }]} rows={settlements} /></TableCard><TableCard title="Approval Queue"><DataTable columns={[{ key: "id", label: "Approval ID" }, { key: "approval_type", label: "Type" }, { key: "entity_id", label: "Entity" }, { key: "status", label: "Status", render: (value) => <SeverityBadge value={value} /> }, { key: "id", label: "Action", render: (_value, row) => row.status === "pending" ? <InlineConfirmAction label="Approve" disabled={!handlers.canAction("decide_approvals")} onConfirm={() => handlers.onDecideApproval(row.id, "approved")} /> : "Closed" }]} rows={pendingApprovals} /></TableCard></div> : null}
+
+      <Drawer open={drawer === "aggregate"} title="Aggregate Demands" subtitle="Roll up farmer requests (same FPO + item) into one procurement-ready line." onClose={() => setDrawer("")}><form className="drawer-form" onSubmit={(event) => { event.preventDefault(); submitAndMaybeClose(handlers.onAggregateDemands({ fpo_id: aggregateForm.fpo_id, item_id: aggregateForm.item_id }), () => setDrawer("")); }}><label><span>FPO</span><select value={aggregateForm.fpo_id} onChange={(event) => setAggregateForm({ ...aggregateForm, fpo_id: event.target.value })}>{(lookups.fpos || []).map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label><label><span>Input item</span><select value={aggregateForm.item_id} onChange={(event) => setAggregateForm({ ...aggregateForm, item_id: event.target.value })}>{(lookups.inputs || []).map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label><label><span>Matching captured rows</span><input value={number(capturedDemands.filter((r) => r.fpo_id === aggregateForm.fpo_id && r.item_id === aggregateForm.item_id).length)} readOnly /></label><label><span>Total qty to procure</span><input value={number(capturedDemands.filter((r) => r.fpo_id === aggregateForm.fpo_id && r.item_id === aggregateForm.item_id).reduce((s, r) => s + Number(r.requested_qty || 0), 0))} readOnly /></label><div className="drawer-button-stack"><button type="button" className="btn-ghost" onClick={() => setDrawer("")}>Cancel</button><button type="submit" className="btn-primary">Aggregate</button></div></form></Drawer>
+      <Drawer open={drawer === "pr"} title="Create Purchase Request" onClose={() => setDrawer("")}><form className="drawer-form" onSubmit={(event) => { event.preventDefault(); const candidateDemandIds = demands.filter((row) => row.fpo_id === prForm.fpo_id && row.item_id === prForm.item_id && row.status === "aggregated").map((row) => row.id).slice(0, 25); submitAndMaybeClose(handlers.onCreatePurchaseRequest({ ...prForm, total_qty: Number(prForm.total_qty), input_demand_ids: candidateDemandIds }), () => setDrawer("")); }}><label><span>FPO</span><select value={prForm.fpo_id} onChange={(event) => setPrForm({ ...prForm, fpo_id: event.target.value })}>{(lookups.fpos || []).map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label><label><span>Item</span><select value={prForm.item_id} onChange={(event) => setPrForm({ ...prForm, item_id: event.target.value })}>{(lookups.inputs || []).map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label><label><span>Quantity</span><input type="number" value={prForm.total_qty} onChange={(event) => setPrForm({ ...prForm, total_qty: event.target.value })} /></label><label><span>Supplier</span><select value={prForm.supplier_id} onChange={(event) => setPrForm({ ...prForm, supplier_id: event.target.value })}>{(lookups.suppliers || []).map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label><div className="drawer-button-stack"><button type="button" className="btn-ghost" onClick={() => setDrawer("")}>Cancel</button><button type="submit" className="btn-primary">Submit PR</button></div></form></Drawer>
+      <Drawer open={drawer === "grn"} title="Create Goods Receipt" onClose={() => setDrawer("")}><form className="drawer-form" onSubmit={(event) => { event.preventDefault(); submitAndMaybeClose(handlers.onCreateGoodsReceipt({ po_id: grnForm.po_id, qty_received: Number(grnForm.qty_received), damaged_qty: Number(grnForm.damaged_qty) }), () => setDrawer("")); }}><label><span>PO ID</span><input value={grnForm.po_id} onChange={(event) => setGrnForm({ ...grnForm, po_id: event.target.value })} required /></label><label><span>Qty received</span><input type="number" value={grnForm.qty_received} onChange={(event) => setGrnForm({ ...grnForm, qty_received: event.target.value })} required /></label><label><span>Damaged qty</span><input type="number" value={grnForm.damaged_qty} onChange={(event) => setGrnForm({ ...grnForm, damaged_qty: event.target.value })} /></label><div className="drawer-button-stack"><button type="button" className="btn-ghost" onClick={() => setDrawer("")}>Cancel</button><button type="submit" className="btn-primary">Submit GRN</button></div></form></Drawer>
+      <Drawer open={drawer === "issue"} title="Issue Inputs" onClose={() => setDrawer("")}><form className="drawer-form" onSubmit={(event) => { event.preventDefault(); submitAndMaybeClose(handlers.onCreateInputIssue({ ...issueForm, qty_issued: Number(issueForm.qty_issued) }), () => setDrawer("")); }}><label><span>Farmer</span><select value={issueForm.farmer_id} onChange={(event) => setIssueForm({ ...issueForm, farmer_id: event.target.value })}>{(lookups.farmers || []).map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label><label><span>Item</span><select value={issueForm.item_id} onChange={(event) => setIssueForm({ ...issueForm, item_id: event.target.value })}>{(lookups.inputs || []).map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label><label><span>Qty issued</span><input type="number" value={issueForm.qty_issued} onChange={(event) => setIssueForm({ ...issueForm, qty_issued: event.target.value })} /></label><div className="drawer-button-stack"><button type="button" className="btn-ghost" onClick={() => setDrawer("")}>Cancel</button><button type="submit" className="btn-primary">Issue stock</button></div></form></Drawer>
+      <Drawer open={drawer === "collection"} title="Record Produce Collection" onClose={() => setDrawer("")}><form className="drawer-form" onSubmit={(event) => { event.preventDefault(); submitAndMaybeClose(handlers.onCreateProduceCollection({ ...collectionForm, quantity_qtl: Number(collectionForm.quantity_qtl), moisture_pct: Number(collectionForm.moisture_pct) }), () => setDrawer("")); }}><label><span>Farmer</span><select value={collectionForm.farmer_id} onChange={(event) => setCollectionForm({ ...collectionForm, farmer_id: event.target.value })}>{(lookups.farmers || []).map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label><label><span>Crop</span><input value={collectionForm.crop} onChange={(event) => setCollectionForm({ ...collectionForm, crop: event.target.value })} /></label><label><span>Quantity (qtl)</span><input type="number" value={collectionForm.quantity_qtl} onChange={(event) => setCollectionForm({ ...collectionForm, quantity_qtl: event.target.value })} /></label><label><span>Grade</span><select value={collectionForm.grade} onChange={(event) => setCollectionForm({ ...collectionForm, grade: event.target.value })}><option value="A">A</option><option value="B">B</option><option value="C">C</option></select></label><label><span>Moisture %</span><input type="number" step="0.1" value={collectionForm.moisture_pct} onChange={(event) => setCollectionForm({ ...collectionForm, moisture_pct: event.target.value })} /></label><label><span>Collection center</span><input value={collectionForm.collection_center} onChange={(event) => setCollectionForm({ ...collectionForm, collection_center: event.target.value })} /></label><div className="drawer-button-stack"><button type="button" className="btn-ghost" onClick={() => setDrawer("")}>Cancel</button><button type="submit" className="btn-primary">Record collection</button></div></form></Drawer>
+    </div>
+  );
+}
+
+function MarketSection({ sectionData, handlers }) {
+  const prices = sliceRows(sectionData.prices);
+  const buyers = sliceRows(sectionData.buyers);
+  const buyerDemands = sliceRows(sectionData.demands);
+  const matching = sliceRows(sectionData.matching);
+  const salesOrders = sliceRows(sectionData.salesOrders);
+  const dispatches = sliceRows(sectionData.dispatches);
+  const collections = sliceRows(sectionData.collections);
+  const [drawer, setDrawer] = useState("");
+  const [buyerDemandForm, setBuyerDemandForm] = useState({ buyer_id: buyers[0]?.id || "", crop: "Tomato", quantity_mt: "55", offered_price: "2250", delivery_location: buyers[0]?.district || "Pune" });
+  const [salesOrderForm, setSalesOrderForm] = useState({ buyer_id: buyers[0]?.id || "", crop: "Tomato", quantity_mt: "40", price: "2250", buyer_demand_id: "", collection_ids: [] });
+  const [dispatchForm, setDispatchForm] = useState({ sales_order_id: salesOrders[0]?.id || "", qty_dispatched_mt: "22", vehicle_no: "MH-12-4587" });
+
+  useEffect(() => {
+    if (!buyerDemandForm.buyer_id && buyers[0]?.id) setBuyerDemandForm((current) => ({ ...current, buyer_id: buyers[0].id, delivery_location: buyers[0].district }));
+    if (!salesOrderForm.buyer_id && buyers[0]?.id) setSalesOrderForm((current) => ({ ...current, buyer_id: buyers[0].id }));
+    if (!dispatchForm.sales_order_id && salesOrders[0]?.id) setDispatchForm((current) => ({ ...current, sales_order_id: salesOrders[0].id }));
+  }, [buyerDemandForm.buyer_id, buyers, dispatchForm.sales_order_id, salesOrderForm.buyer_id, salesOrders]);
+
+  return (
+    <div className="stack">
+      <div className="section-toolbar">
+        <div className="stat-grid">
+          <StatCard label="Mandi Price Records" value={number(sectionData.prices?.total)} />
+          <StatCard label="Buyer Network" value={number(sectionData.buyers?.total)} />
+          <StatCard label="Open Buyer Demands" value={number(sectionData.demands?.total)} tone="medium" />
+          <StatCard label="Matched Opportunities" value={number(sectionData.matching?.total)} tone="medium" />
+          <StatCard label="Sales Orders" value={number(sectionData.salesOrders?.total)} />
+          <StatCard label="Dispatches" value={number(sectionData.dispatches?.total)} />
+        </div>
+        <div className="toolbar-actions">
+          <button type="button" className="btn-primary" onClick={() => setDrawer("buyer")} disabled={!handlers.canAction("create_buyer_demand")}>Add Buyer Demand</button>
+          <button type="button" className="btn-ghost" onClick={() => setDrawer("dispatch")} disabled={!handlers.canAction("create_dispatch")}>Create Dispatch</button>
+        </div>
+      </div>
+
+      <div className="equal-grid">
+        <TableCard title="Mandi Price Feed" collapsible>
+          <DataTable columns={[{ key: "crop", label: "Crop" }, { key: "mandi", label: "Market" }, { key: "price_min", label: "Min", render: (value) => currency(value) }, { key: "price_avg", label: "Avg", render: (value) => currency(value) }, { key: "price_max", label: "Max", render: (value) => currency(value) }, { key: "date", label: "Date" }]} rows={prices} />
+        </TableCard>
+        <TableCard title="Buyer Network" collapsible>
+          <DataTable columns={[{ key: "name", label: "Buyer" }, { key: "buyer_type", label: "Type" }, { key: "district", label: "District" }, { key: "reliability_score", label: "Reliability" }]} rows={buyers} />
+        </TableCard>
+      </div>
+
+      <TableCard title="Supply-Demand Matching">
+        <DataTable
+          columns={[
+            { key: "buyer_demand_id", label: "Demand" },
+            { key: "crop", label: "Crop" },
+            { key: "buyer_name", label: "Buyer" },
+            { key: "fpo_name", label: "FPO" },
+            { key: "required_mt", label: "Required (MT)" },
+            { key: "available_mt", label: "Available (MT)" },
+            { key: "offered_price", label: "Buyer Offer", render: (value) => currency(value) },
+            { key: "match_score", label: <MatchScoreInfoLabel />, render: (value) => <MatchScoreCell value={value} /> },
+            { key: "buyer_demand_id", label: "Action", render: (_value, row) => (
+              <button
+                type="button"
+                className="btn-ghost btn-small"
+                disabled={!handlers.canAction("create_sales_order")}
+                onClick={() => {
+                  setSalesOrderForm({ buyer_id: buyers.find((item) => item.name === row.buyer_name)?.id || salesOrderForm.buyer_id, crop: row.crop, quantity_mt: String(row.required_mt), price: String(row.offered_price), buyer_demand_id: row.buyer_demand_id, collection_ids: [] });
+                  setDrawer("sales");
+                }}
+              >
+                Create Deal
+              </button>
+            )}
+          ]}
+          rows={matching}
+        />
+      </TableCard>
+
+      <div className="market-grid">
+        <TableCard title="Buyer Demand Board">
+          <DataTable
+            columns={[
+              { key: "id", label: "Demand ID" },
+              { key: "buyer_name", label: "Buyer" },
+              { key: "crop", label: "Crop" },
+              { key: "quantity_mt", label: "Qty (MT)" },
+              { key: "offered_price", label: "Offer", render: (value) => currency(value) },
+              { key: "status", label: "Status", render: (value) => <SeverityBadge value={value} /> }
+            ]}
+            rows={buyerDemands}
+          />
+        </TableCard>
+        <div className="stack">
+          <TableCard title="Active Sales Orders">
+            <DataTable
+              columns={[
+                { key: "id", label: "Order ID" },
+                { key: "buyer_name", label: "Buyer" },
+                { key: "crop", label: "Crop" },
+                { key: "quantity_mt", label: "Qty (MT)" },
+                { key: "price", label: "Price", render: (value) => currency(value) },
+                { key: "payment_status", label: "Payment", render: (value) => <SeverityBadge value={value} /> },
+                { key: "id", label: "Action", render: (_value, row) => row.payment_status !== "received" ? <InlineConfirmAction label="Mark Paid" disabled={!handlers.canAction("mark_sales_paid")} onConfirm={() => handlers.onMarkSalesOrderPaid(row.id)} /> : "Paid" }
+              ]}
+              rows={salesOrders}
+            />
+          </TableCard>
+          <TableCard title="Dispatches" collapsible>
+            <DataTable
+              columns={[
+                { key: "id", label: "Dispatch" },
+                { key: "sales_order_id", label: "Sales Order" },
+                { key: "vehicle_no", label: "Vehicle" },
+                { key: "qty_dispatched_mt", label: "Qty (MT)" },
+                { key: "delivery_status", label: "Delivery" }
+              ]}
+              rows={dispatches}
+            />
+          </TableCard>
+        </div>
+      </div>
+
+      <Drawer open={drawer === "buyer"} title="Add Buyer Demand" onClose={() => setDrawer("")}><form className="drawer-form" onSubmit={(event) => { event.preventDefault(); submitAndMaybeClose(handlers.onCreateBuyerDemand({ ...buyerDemandForm, quantity_mt: Number(buyerDemandForm.quantity_mt), offered_price: Number(buyerDemandForm.offered_price) }), () => setDrawer("")); }}><label><span>Buyer</span><select value={buyerDemandForm.buyer_id} onChange={(event) => setBuyerDemandForm({ ...buyerDemandForm, buyer_id: event.target.value })}>{buyers.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label><label><span>Crop</span><input value={buyerDemandForm.crop} onChange={(event) => setBuyerDemandForm({ ...buyerDemandForm, crop: event.target.value })} /></label><label><span>Quantity (MT)</span><input type="number" value={buyerDemandForm.quantity_mt} onChange={(event) => setBuyerDemandForm({ ...buyerDemandForm, quantity_mt: event.target.value })} /></label><label><span>Offered price</span><input type="number" value={buyerDemandForm.offered_price} onChange={(event) => setBuyerDemandForm({ ...buyerDemandForm, offered_price: event.target.value })} /></label><div className="drawer-button-stack"><button type="button" className="btn-ghost" onClick={() => setDrawer("")}>Cancel</button><button type="submit" className="btn-primary">Create demand</button></div></form></Drawer>
+      <Drawer open={drawer === "sales"} title="Create Sales Order" onClose={() => setDrawer("")}><form className="drawer-form" onSubmit={(event) => { event.preventDefault(); submitAndMaybeClose(handlers.onCreateSalesOrder({ ...salesOrderForm, quantity_mt: Number(salesOrderForm.quantity_mt), price: Number(salesOrderForm.price), collection_ids: salesOrderForm.collection_ids }), () => setDrawer("")); }}><label><span>Buyer</span><select value={salesOrderForm.buyer_id} onChange={(event) => setSalesOrderForm({ ...salesOrderForm, buyer_id: event.target.value })}>{buyers.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label><label><span>Crop</span><input value={salesOrderForm.crop} onChange={(event) => setSalesOrderForm({ ...salesOrderForm, crop: event.target.value })} /></label><label><span>Quantity (MT)</span><input type="number" value={salesOrderForm.quantity_mt} onChange={(event) => setSalesOrderForm({ ...salesOrderForm, quantity_mt: event.target.value })} /></label><label><span>Price</span><input type="number" value={salesOrderForm.price} onChange={(event) => setSalesOrderForm({ ...salesOrderForm, price: event.target.value })} /></label><label><span>Demand link</span><select value={salesOrderForm.buyer_demand_id} onChange={(event) => setSalesOrderForm({ ...salesOrderForm, buyer_demand_id: event.target.value })}><option value="">None</option>{buyerDemands.map((row) => <option key={row.id} value={row.id}>{row.id} - {row.buyer_name}</option>)}</select></label><label><span>Eligible collections</span><input value={number(collections.filter((row) => row.crop === salesOrderForm.crop).length)} readOnly /></label><div className="drawer-button-stack"><button type="button" className="btn-ghost" onClick={() => setDrawer("")}>Cancel</button><button type="submit" className="btn-primary">Create sales order</button></div></form></Drawer>
+      <Drawer open={drawer === "dispatch"} title="Create Dispatch" onClose={() => setDrawer("")}><form className="drawer-form" onSubmit={(event) => { event.preventDefault(); submitAndMaybeClose(handlers.onCreateDispatch({ ...dispatchForm, qty_dispatched_mt: Number(dispatchForm.qty_dispatched_mt) }), () => setDrawer("")); }}><label><span>Sales order</span><select value={dispatchForm.sales_order_id} onChange={(event) => setDispatchForm({ ...dispatchForm, sales_order_id: event.target.value })}>{salesOrders.map((row) => <option key={row.id} value={row.id}>{row.id} - {row.buyer_name}</option>)}</select></label><label><span>Qty dispatched (MT)</span><input type="number" value={dispatchForm.qty_dispatched_mt} onChange={(event) => setDispatchForm({ ...dispatchForm, qty_dispatched_mt: event.target.value })} /></label><label><span>Vehicle no</span><input value={dispatchForm.vehicle_no} onChange={(event) => setDispatchForm({ ...dispatchForm, vehicle_no: event.target.value })} /></label><div className="drawer-button-stack"><button type="button" className="btn-ghost" onClick={() => setDrawer("")}>Cancel</button><button type="submit" className="btn-primary">Create dispatch</button></div></form></Drawer>
+    </div>
+  );
+}
+
+function CommunicationSection({ sectionData, handlers }) {
+  const inboxAll = sliceRows(sectionData.inbox);
+  const broadcasts = sliceRows(sectionData.broadcasts);
+  const agentConfig = sectionData.agentConfig || {};
+  const lookups = sectionData.lookups || {};
+  const farmers = lookups.farmers || [];
+  const fpos = lookups.fpos || [];
+  const villages = lookups.villages || [];
+  const crops = lookups.crops || [];
+  const languages = lookups.languages || [];
+
+  const [activeTab, setActiveTab] = useState("all");
+  const [selectedMessageId, setSelectedMessageId] = useState("");
+  const [threadRows, setThreadRows] = useState([]);
+  const [replyText, setReplyText] = useState("");
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [broadcastForm, setBroadcastForm] = useState({ text: "", fpo_id: "", village: "", crop: "", language: "" });
+  const [expandedBroadcastId, setExpandedBroadcastId] = useState("");
+  const [broadcastRecipients, setBroadcastRecipients] = useState({});
+
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [sortOrder, setSortOrder] = useState("newest");
+
+  useEffect(() => { setTypeFilter("all"); }, [activeTab]);
+  const inboxTab = activeTab === "escalations" ? inboxAll.filter((row) => row.escalated) : inboxAll;
+  const typeKey = activeTab === "escalations" ? "escalation_category" : "intent";
+  const categoryOptions = Array.from(new Set(inboxTab.map((r) => r[typeKey]).filter((c) => c && c !== "none")));
+  const inbox = inboxTab
+    .filter((r) => typeFilter === "all" || r[typeKey] === typeFilter)
+    .slice()
+    .sort((a, b) => {
+      const da = new Date(a.timestamp).getTime();
+      const db = new Date(b.timestamp).getTime();
+      return sortOrder === "newest" ? db - da : da - db;
+    });
+  const selectedMessage = inbox.find((row) => row.id === selectedMessageId) || inbox[0];
+  const pendingMessages = inbox.filter((row) => row.status === "pending");
+  const inProgressMessages = inbox.filter((row) => row.status === "in_progress");
+  const resolvedMessages = inbox.filter((row) => row.status === "resolved");
+
+  const previewRecipients = farmers.filter((f) => {
+    if (broadcastForm.fpo_id && f.fpo_id !== broadcastForm.fpo_id) return false;
+    if (broadcastForm.village && f.village !== broadcastForm.village) return false;
+    if (broadcastForm.crop && f.primary_crop !== broadcastForm.crop) return false;
+    if (broadcastForm.language && f.language !== broadcastForm.language) return false;
+    if (!f.whatsapp_opt_in) return false;
+    return true;
+  }).length;
+  const totalReach = broadcasts.reduce((sum, b) => sum + (b.read_count || 0), 0);
+
+  useEffect(() => {
+    if (!selectedMessageId && inbox[0]?.id) setSelectedMessageId(inbox[0].id);
+  }, [inbox, selectedMessageId]);
+
+  useEffect(() => {
+    let mounted = true;
+    async function loadThread() {
+      if (!selectedMessage?.farmer_id) return;
+      const payload = await api.communicationThread(selectedMessage.farmer_id, 40);
+      if (mounted) setThreadRows(sliceRows(payload).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp)));
+    }
+    loadThread();
+    return () => { mounted = false; };
+  }, [sectionData.inbox?.total, selectedMessage?.farmer_id]);
+
+  function statusLabel(s) {
+    if (s === "pending") return "New";
+    if (s === "in_progress") return "In Progress";
+    return "Resolved";
+  }
+  function statusClass(s) {
+    if (s === "pending") return "badge-warn";
+    if (s === "in_progress") return "badge-info";
+    return "badge-ok";
+  }
+  function laneClass(s) {
+    if (s === "pending") return "jira-lane-warn";
+    if (s === "in_progress") return "jira-lane-info";
+    return "jira-lane-ok";
+  }
+  function actionLabelForStatus(s) {
+    if (s === "pending") return "Start";
+    if (s === "in_progress") return "Resolve";
+    return "Reopen";
+  }
+  function nextStatusForMessage(s) {
+    if (s === "pending") return "in_progress";
+    if (s === "in_progress") return "resolved";
+    return "in_progress";
+  }
+  async function openMessage(message) {
+    if (!message) return;
+    setSelectedMessageId(message.id);
+    if (handlers.canAction("communicate") && message.status === "pending") {
+      await handlers.onSetMessageStatus(message.id, "in_progress");
+    }
+  }
+  async function moveMessage(message, nextStatus) {
+    if (!handlers.canAction("communicate") || !message || message.status === nextStatus) return;
+    setSelectedMessageId(message.id);
+    await handlers.onSetMessageStatus(message.id, nextStatus);
+  }
+
+  const boardColumns = [
+    { id: "pending", title: "New", subtitle: "Fresh incoming threads", rows: pendingMessages },
+    { id: "in_progress", title: "In Progress", subtitle: "Being handled by the team", rows: inProgressMessages },
+    { id: "resolved", title: "Resolved", subtitle: "Closed conversations", rows: resolvedMessages }
+  ];
+
+  const timeline = selectedMessage
+    ? [
+        { label: "Created", value: selectedMessage.timestamp },
+        { label: "Opened", value: selectedMessage.in_progress_at || null },
+        { label: "Replied", value: selectedMessage.resolved_at || null }
+      ]
+    : [];
+
+  async function toggleBroadcast(id) {
+    if (expandedBroadcastId === id) { setExpandedBroadcastId(""); return; }
+    setExpandedBroadcastId(id);
+    if (!broadcastRecipients[id]) {
+      const payload = await api.broadcastRecipients(id);
+      setBroadcastRecipients((prev) => ({ ...prev, [id]: sliceRows(payload) }));
+    }
+  }
+
+const escalationOpenCount = inboxAll.filter((row) => row.escalated && row.status !== "resolved").length;
+
+  return (
+    <div className="stack">
+      <div className="section-toolbar">
+        <div className="stat-grid">
+          <StatCard label="Messages" value={number(sectionData.inbox?.total)} />
+          <StatCard label="Escalations Open" value={number(escalationOpenCount)} tone="high" />
+          <StatCard label="Broadcasts" value={number(broadcasts.length)} />
+          <StatCard label="Read Confirmations" value={number(totalReach)} />
+        </div>
+        <button type="button" className="btn-primary" onClick={() => setDrawerOpen(true)} disabled={!handlers.canAction("communicate")}>New Advisory Broadcast</button>
+      </div>
+
+      <div className="pill-tabs">
+        <button type="button" className={`pill-tab ${activeTab === "all" ? "active" : ""}`} onClick={() => setActiveTab("all")}>All Messages</button>
+        <button type="button" className={`pill-tab ${activeTab === "escalations" ? "active" : ""}`} onClick={() => setActiveTab("escalations")}>Escalations</button>
+        <button type="button" className={`pill-tab ${activeTab === "broadcasts" ? "active" : ""}`} onClick={() => setActiveTab("broadcasts")}>Broadcasts</button>
+      </div>
+
+      {activeTab === "broadcasts" ? (
+        <div className="broadcast-grid">
+          {!broadcasts.length ? <p className="jira-lane-empty">No broadcasts yet.</p> : null}
+          {broadcasts.map((b) => {
+            const total = b.recipient_count || 0;
+            const read = b.read_count || 0;
+            const pct = total ? Math.round((read / total) * 100) : 0;
+            const expanded = expandedBroadcastId === b.id;
+            const recipients = broadcastRecipients[b.id] || [];
+            return (
+              <div key={b.id} className="table-card glass-normal">
+                <div className="jira-board-head">
+                  <div>
+                    <h4>{b.id}</h4>
+                    <p className="jira-ticket-submeta">{formatDateTime(b.created_at)}</p>
+                  </div>
+                  <span className="badge badge-info">{b.language}</span>
+                </div>
+                <p style={{ margin: "8px 0" }}>{b.text}</p>
+                <div className="jira-ticket-submeta">Audience: FPO {b.fpo_id} / Village {b.village} / Crop {b.crop}</div>
+                <div className="broadcast-metrics" style={{ display: "flex", gap: 16, margin: "12px 0" }}>
+                  <div><strong>{total}</strong><div className="jira-ticket-submeta">Sent</div></div>
+                  <div><strong>{read}</strong><div className="jira-ticket-submeta">Read</div></div>
+                  <div><strong>{pct}%</strong><div className="jira-ticket-submeta">Read rate</div></div>
+                </div>
+                <div style={{ background: "#eee", height: 6, borderRadius: 3, overflow: "hidden" }}>
+                  <div style={{ width: `${pct}%`, height: "100%", background: "#4caf50" }} />
+                </div>
+                <div style={{ marginTop: 12 }}>
+                  <button type="button" className="btn-ghost btn-small" onClick={() => toggleBroadcast(b.id)}>
+                    {expanded ? "Hide recipients" : "View recipients"}
+                  </button>
+                </div>
+                {expanded ? (
+                  <div style={{ marginTop: 12 }}>
+                    <DataTable
+                      columns={[
+                        { key: "farmer_name", label: "Farmer" },
+                        { key: "village", label: "Village" },
+                        { key: "status", label: "Status", render: (v) => <span className={`badge ${v === "read" ? "badge-ok" : "badge-warn"}`}>{v}</span> },
+                        { key: "read_at", label: "Read at", render: (v) => v ? formatDateTime(v) : "-" }
+                      ]}
+                      rows={recipients}
+                    />
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+      <div className="table-card glass-normal communication-jira-shell">
+        <div className="jira-board-layout">
+          <div className="jira-board-panel">
+            <div className="jira-board-head">
+              <h3>{activeTab === "escalations" ? "Escalations Board" : "Communication Board"}</h3>
+              <AgentStatusBadge agentConfig={agentConfig} />
+            </div>
+            <div className="table-controls">
+              <div className="table-filter-grid">
+                <label className="table-control">
+                  <span>Filter {activeTab === "escalations" ? "Type" : "Intent"}</span>
+                  <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
+                    <option value="all">All</option>
+                    {categoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </label>
+                <label className="table-control">
+                  <span>Sort By Date</span>
+                  <select value={sortOrder} onChange={(e) => setSortOrder(e.target.value)}>
+                    <option value="newest">Newest first</option>
+                    <option value="oldest">Oldest first</option>
+                  </select>
+                </label>
+              </div>
+              <div className="table-controls-summary">
+                <span>Showing {inbox.length} of {inboxTab.length}</span>
+              </div>
+            </div>
+
+            <div className="jira-board-grid">
+              {boardColumns.map((column) => (
+                <section key={column.id} className={`jira-lane ${laneClass(column.id)}`}>
+                  <div className="jira-lane-head">
+                    <div>
+                      <h4>{column.title}</h4>
+                      <p>{column.subtitle}</p>
+                    </div>
+                    <span className="jira-lane-count">{column.rows.length}</span>
+                  </div>
+
+                  <div className="jira-lane-list">
+                    {!column.rows.length ? <p className="jira-lane-empty">No threads in this lane.</p> : null}
+                    {column.rows.map((row) => (
+                      <button key={row.id} type="button" className={`jira-card ${selectedMessageId === row.id ? "active" : ""}`} onClick={() => openMessage(row)}>
+                        <div className="jira-card-top">
+                          <span className="jira-ticket-key">{row.id.slice(-6).toUpperCase()}</span>
+                          <span className={`badge ${statusClass(row.status)}`}>{statusLabel(row.status)}</span>
+                        </div>
+                        <div className="jira-card-body">
+                          <strong className="jira-ticket-summary">{row.text || "No message"}</strong>
+                          <span className="jira-ticket-meta">{row.farmer_name}</span>
+                          <span className="jira-ticket-submeta">{formatDateTime(row.timestamp)}</span>
+                        </div>
+                        <div className="jira-card-bottom">
+                          <IntentChip value={row.intent} />
+                          <button
+                            type="button"
+                            className="btn-ghost btn-small jira-card-action"
+                            disabled={!handlers.canAction("communicate")}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              moveMessage(row, nextStatusForMessage(row.status));
+                            }}
+                          >
+                            {actionLabelForStatus(row.status)}
+                          </button>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
+          </div>
+
+          <div className="jira-detail-panel">
+            {selectedMessage ? (
+              <>
+                <div className="jira-detail-head">
+                  <div>
+                    <h4>{selectedMessage.farmer_name}</h4>
+                    <span className="jira-detail-id">{selectedMessage.id}</span>
+                  </div>
+                  <div className="jira-detail-head-tags">
+                    <IntentChip value={selectedMessage.intent} />
+                    <span className={`badge ${statusClass(selectedMessage.status)}`}>{statusLabel(selectedMessage.status)}</span>
+                  </div>
+                </div>
+
+                <div className="jira-detail-body">
+                  <div className="jira-detail-summary-card">
+                    <div className="jira-detail-summary-row">
+                      <span className="jira-detail-field">Reporter</span>
+                      <strong>{selectedMessage.farmer_name}</strong>
+                    </div>
+                    <div className="jira-detail-summary-row jira-detail-summary-text">
+                      <span className="jira-detail-field">Latest message</span>
+                      <p>{selectedMessage.text || "No message provided."}</p>
+                    </div>
+                  </div>
+
+                  <div className="jira-timeline">
+                    {timeline.map((item) => (
+                      <div key={item.label} className={`jira-timeline-item ${item.value ? "is-complete" : ""}`}>
+                        <span className="jira-timeline-dot" />
+                        <div>
+                          <strong>{item.label}</strong>
+                          <p>{item.value ? formatDateTime(item.value) : "Pending"}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="jira-thread">
+                    {threadRows.map((row) => (
+                      <div key={row.id} className={`jira-msg ${row.direction === "incoming" ? "incoming" : "outgoing"}`}>
+                        <span className="jira-msg-author">{row.direction === "incoming" ? selectedMessage.farmer_name : "FPO Office"}</span>
+                        <p className="jira-msg-text">{row.text}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <form className="jira-reply" onSubmit={(event) => { event.preventDefault(); if (selectedMessage && replyText.trim()) submitAndMaybeClose(handlers.onOfficeReply({ farmer_id: selectedMessage.farmer_id, text: replyText, message_id: selectedMessage.id }), () => setReplyText("")); }}>
+                  <textarea rows={3} value={replyText} onChange={(event) => setReplyText(event.target.value)} placeholder="Reply to selected thread" />
+                  <div className="jira-reply-actions">
+                    <button type="submit" className="btn-primary" disabled={!handlers.canAction("communicate") || !replyText.trim()}>Send reply</button>
+                    <button type="button" className="btn-ghost" disabled={!handlers.canAction("communicate") || !agentConfig.agent_available} onClick={() => handlers.onAgentReply(selectedMessage.id)}>Agent Reply</button>
+                    {selectedMessage.status !== "in_progress" ? (
+                      <button type="button" className="btn-ghost" disabled={!handlers.canAction("communicate")} onClick={() => moveMessage(selectedMessage, "in_progress")}>Mark In Progress</button>
+                    ) : null}
+                    {selectedMessage.status !== "resolved" ? (
+                      <button type="button" className="btn-ghost" disabled={!handlers.canAction("communicate")} onClick={() => moveMessage(selectedMessage, "resolved")}>Resolve</button>
+                    ) : (
+                      <button type="button" className="btn-ghost" disabled={!handlers.canAction("communicate")} onClick={() => moveMessage(selectedMessage, "in_progress")}>Reopen</button>
+                    )}
+                  </div>
+                </form>
+              </>
+            ) : (
+              <div className="jira-detail-empty">
+                <p>Select a thread to view details</p>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      )}
+
+      <Drawer open={drawerOpen} title="Broadcast Composer" subtitle={`Audience preview: ${previewRecipients} farmers`} onClose={() => setDrawerOpen(false)}>
+        <form className="drawer-form" onSubmit={(event) => {
+          event.preventDefault();
+          submitAndMaybeClose(
+            handlers.onCreateBroadcast(broadcastForm),
+            () => { setBroadcastForm({ text: "", fpo_id: "", village: "", crop: "", language: "" }); setDrawerOpen(false); }
+          );
+        }}>
+          <label className="field-span-full"><span>Message</span>
+            <textarea rows={4} value={broadcastForm.text} onChange={(e) => setBroadcastForm({ ...broadcastForm, text: e.target.value })} required />
+          </label>
+          <label><span>FPO</span>
+            <select value={broadcastForm.fpo_id} onChange={(e) => setBroadcastForm({ ...broadcastForm, fpo_id: e.target.value })}>
+              <option value="">All FPOs</option>
+              {fpos.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+            </select>
+          </label>
+          <label><span>Village</span>
+            <select value={broadcastForm.village} onChange={(e) => setBroadcastForm({ ...broadcastForm, village: e.target.value })}>
+              <option value="">All villages</option>
+              {villages.map((v) => <option key={v} value={v}>{v}</option>)}
+            </select>
+          </label>
+          <label><span>Crop</span>
+            <select value={broadcastForm.crop} onChange={(e) => setBroadcastForm({ ...broadcastForm, crop: e.target.value })}>
+              <option value="">All crops</option>
+              {crops.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </label>
+          <label><span>Language</span>
+            <select value={broadcastForm.language} onChange={(e) => setBroadcastForm({ ...broadcastForm, language: e.target.value })}>
+              <option value="">All languages</option>
+              {languages.map((l) => <option key={l} value={l}>{l}</option>)}
+            </select>
+          </label>
+          <div className="field-span-full jira-ticket-submeta">Recipients will be asked to reply YES to confirm they have read the advisory.</div>
+          <div className="drawer-button-stack">
+            <button type="button" className="btn-ghost" onClick={() => setDrawerOpen(false)}>Cancel</button>
+            <button type="submit" className="btn-primary" disabled={!previewRecipients}>Send broadcast ({previewRecipients})</button>
+          </div>
+        </form>
+      </Drawer>
+    </div>
+  );
+}
+
+function CarbonSection({ sectionData, handlers }) {
+  const practices = sliceRows(sectionData.practices);
+  const estimates = sliceRows(sectionData.estimates);
+  const projects = sliceRows(sectionData.projects);
+  const lookups = sectionData.lookups || {};
+  const credits = projects.reduce((sum, row) => sum + Number(row.estimated_credits || 0), 0);
+  const revenue = projects.reduce((sum, row) => sum + Number(row.estimated_revenue_usd || 0), 0);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [form, setForm] = useState({ farmer_id: lookups.farmers?.[0]?.id || "", practice_type: "Drip Irrigation", area_ha: "1.2", crop: "Onion" });
+
+  useEffect(() => {
+    if (!form.farmer_id && lookups.farmers?.[0]?.id) setForm((current) => ({ ...current, farmer_id: lookups.farmers[0].id }));
+  }, [form.farmer_id, lookups.farmers]);
+
+  return (
+    <div className="stack">
+      <div className="section-toolbar">
+        <div className="stat-grid">
+          <StatCard label="Practice Logs" value={number(sectionData.practices?.total)} />
+          <StatCard label="Carbon Estimates" value={number(sectionData.estimates?.total)} />
+          <StatCard label="Carbon Projects" value={number(sectionData.projects?.total)} />
+          <StatCard label="Total Credits Est." value={number(credits, 2)} tone="medium" />
+          <StatCard label="Revenue Est." value={currency(revenue)} />
+        </div>
+        <button type="button" className="btn-primary" onClick={() => setDrawerOpen(true)} disabled={!handlers.canAction("manage_carbon")}>Log Practice</button>
+      </div>
+
+      <div className="equal-grid">
+        <TableCard title="Practice Tracking">
+          <DataTable
+            columns={[
+              { key: "farmer_id", label: "Farmer ID" },
+              { key: "crop", label: "Crop" },
+              { key: "practice_type", label: "Practice" },
+              { key: "area_ha", label: "Area (ha)", render: (value) => number(value, 2) },
+              { key: "start_date", label: "Date" }
+            ]}
+            rows={practices}
+          />
+        </TableCard>
+        <TableCard title="Carbon Estimates">
+          <DataTable
+            columns={[
+              { key: "practice_id", label: "Practice" },
+              { key: "farmer_id", label: "Farmer" },
+              { key: "practice_type", label: "Practice Type" },
+              { key: "area_ha", label: "Area (ha)", render: (value) => number(value, 2) },
+              { key: "estimated_credits", label: "Credits Est.", render: (value) => number(value, 3) }
+            ]}
+            rows={estimates}
+          />
+        </TableCard>
+      </div>
+
+      <TableCard title="Project Aggregation">
+        <DataTable
+          columns={[
+            { key: "id", label: "Project" },
+            { key: "fpo_name", label: "FPO" },
+            { key: "crop", label: "Crop" },
+            { key: "farmer_count", label: "Farmers" },
+            { key: "total_area_ha", label: "Area (ha)", render: (value) => number(value, 2) },
+            { key: "estimated_credits", label: "Credits", render: (value) => number(value, 2) },
+            { key: "estimated_revenue_usd", label: "Revenue", render: (value) => currency(value) },
+            { key: "verification_readiness_pct", label: "Readiness", render: (value) => `${number(value, 1)}%` }
+          ]}
+          rows={projects}
+        />
+      </TableCard>
+
+      <Drawer open={drawerOpen} title="Log Carbon Practice" onClose={() => setDrawerOpen(false)}>
+        <form className="drawer-form" onSubmit={(event) => { event.preventDefault(); submitAndMaybeClose(handlers.onCreateCarbonPractice({ ...form, area_ha: Number(form.area_ha) }), () => setDrawerOpen(false)); }}>
+          <label><span>Farmer</span><select value={form.farmer_id} onChange={(event) => setForm({ ...form, farmer_id: event.target.value })}>{(lookups.farmers || []).map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label>
+          <label><span>Crop</span><input value={form.crop} onChange={(event) => setForm({ ...form, crop: event.target.value })} /></label>
+          <label><span>Practice type</span><input value={form.practice_type} onChange={(event) => setForm({ ...form, practice_type: event.target.value })} /></label>
+          <label><span>Area (ha)</span><input type="number" step="0.1" value={form.area_ha} onChange={(event) => setForm({ ...form, area_ha: event.target.value })} /></label>
+          <div className="drawer-button-stack"><button type="button" className="btn-ghost" onClick={() => setDrawerOpen(false)}>Cancel</button><button type="submit" className="btn-primary">Log practice</button></div>
+        </form>
+      </Drawer>
+    </div>
+  );
+}
+
+function GovernanceSection({ sectionData, handlers }) {
+  const approvals = sliceRows(sectionData.approvals);
+  const audits = sliceRows(sectionData.audits);
+  const roleInfo = sectionData.adminRoles || {};
+
+  return (
+    <div className="stack">
+      <div className="stat-grid">
+        <StatCard label="Pending Approvals" value={number(approvals.filter((row) => row.status === "pending").length)} tone="high" />
+        <StatCard label="Resolved Approvals" value={number(approvals.filter((row) => row.status !== "pending").length)} />
+        <StatCard label="Audit Events" value={number(audits.length)} />
+      </div>
+
+      <div className="equal-grid">
+        <TableCard title="Approval Queue"><DataTable columns={[{ key: "id", label: "Approval" }, { key: "approval_type", label: "Type" }, { key: "entity_id", label: "Entity" }, { key: "status", label: "Status", render: (value) => <SeverityBadge value={value} /> }, { key: "id", label: "Action", render: (_value, row) => row.status === "pending" ? <InlineConfirmAction label="Approve" disabled={!handlers.canAction("decide_approvals")} onConfirm={() => handlers.onDecideApproval(row.id, "approved")} /> : "Closed" }]} rows={approvals} /></TableCard>
+        <TableCard title="Audit Timeline"><DataTable columns={[{ key: "timestamp", label: "Timestamp" }, { key: "entity", label: "Entity" }, { key: "entity_id", label: "Entity ID" }, { key: "action", label: "Action" }, { key: "notes", label: "Notes" }]} rows={audits} /></TableCard>
+      </div>
+    </div>
+  );
+}
+
+function ReportsSection({ sectionData, handlers }) {
+  const kpis = sectionData.kpis || {};
+
+  return (
+    <div className="stack">
+      <div className="section-toolbar">
+        <div className="stat-grid">
+          <StatCard label="Input Demand Completion" value={`${number(kpis.input_demand_completion_rate, 2)}%`} />
+          <StatCard label="Settlement Paid Rate" value={`${number(kpis.settlement_paid_rate, 2)}%`} />
+          <StatCard label="Connected Buyers" value={number(kpis.connected_buyers)} />
+          <StatCard label="Repeat Buyers" value={number(kpis.repeat_buyers)} />
+          <StatCard label="Open Escalations" value={number(kpis.open_escalations)} tone="high" />
+          <StatCard label="Pending Approvals" value={number(kpis.pending_approvals)} tone="medium" />
+        </div>
+        <div className="toolbar-actions"><button type="button" className="btn-ghost" disabled={!handlers.canAction("export_reports")} onClick={() => handlers.onDownloadReport("inventory_movement")}>Inventory CSV</button><button type="button" className="btn-ghost" disabled={!handlers.canAction("export_reports")} onClick={() => handlers.onDownloadReport("settlement_ageing")}>Settlement CSV</button></div>
+      </div>
+    </div>
+  );
+}
