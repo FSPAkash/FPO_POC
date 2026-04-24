@@ -3,6 +3,7 @@ const JSON_HEADERS = {
 };
 
 let currentRole = "Super Admin";
+const API_BASE_URL = String(import.meta.env.VITE_API_BASE_URL || "").replace(/\/+$/, "");
 
 export function setApiRole(role) {
   currentRole = role || "Super Admin";
@@ -31,8 +32,13 @@ function requestHeaders() {
   };
 }
 
+function resolveApiPath(path) {
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return API_BASE_URL ? `${API_BASE_URL}${normalizedPath}` : normalizedPath;
+}
+
 export async function getJson(path) {
-  const response = await fetch(path, { headers: requestHeaders() });
+  const response = await fetch(resolveApiPath(path), { headers: requestHeaders() });
   return parseResponse(response);
 }
 
@@ -72,7 +78,7 @@ export async function getAllPages(path, pageSize = 200) {
 }
 
 export async function postJson(path, payload) {
-  const response = await fetch(path, {
+  const response = await fetch(resolveApiPath(path), {
     method: "POST",
     headers: requestHeaders(),
     body: JSON.stringify(payload)
@@ -81,7 +87,7 @@ export async function postJson(path, payload) {
 }
 
 export async function getBlob(path) {
-  const response = await fetch(path, { headers: requestHeaders() });
+  const response = await fetch(resolveApiPath(path), { headers: requestHeaders() });
   return parseBlobResponse(response);
 }
 

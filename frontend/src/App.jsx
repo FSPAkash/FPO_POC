@@ -2,8 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { api, setApiRole } from "./api";
 import { AppShell } from "./components/layout/AppShell";
 import { SectionPanel } from "./components/sections/SectionPanel";
+import { Login } from "./components/auth/Login";
 import { SECTION_SUBTITLES, SECTION_TITLES } from "./theme";
 import { renderSectionView } from "./sectionViews";
+
+const AUTH_STORAGE_KEY = "fpo_auth_user";
 
 const DEMO_ROLES = [
   "Super Admin",
@@ -64,6 +67,14 @@ const ROLE_ACTIONS = {
 };
 
 export default function App() {
+  const [authUser, setAuthUser] = useState(() => {
+    try {
+      const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  });
   const [active, setActive] = useState("command");
   const [role, setRole] = useState("Super Admin");
   const [seedInput, setSeedInput] = useState("42");
@@ -596,6 +607,28 @@ export default function App() {
     );
   }
 
+  function handleLogin(user) {
+    try {
+      window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(user));
+    } catch {
+      // ignore storage errors
+    }
+    setAuthUser(user);
+  }
+
+  function handleLogout() {
+    try {
+      window.localStorage.removeItem(AUTH_STORAGE_KEY);
+    } catch {
+      // ignore
+    }
+    setAuthUser(null);
+  }
+
+  if (!authUser) {
+    return <Login onLogin={handleLogin} />;
+  }
+
   return (
     <AppShell
       active={active}
@@ -611,6 +644,8 @@ export default function App() {
       roles={DEMO_ROLES}
       onRoleChange={setRole}
       canReseed={canAction("reseed")}
+      authUser={authUser}
+      onLogout={handleLogout}
     >
       <>
         <SectionPanel

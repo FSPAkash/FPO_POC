@@ -69,7 +69,18 @@
       "Bash(node -e \"console.log\\('ok'\\)\")",
       "Bash(ls c:\\\\\\\\Users\\\\\\\\AkashPatil\\\\\\\\POC_FPO\\\\\\\\frontend)",
       "Bash(python -c \"import docx; print\\(docx.__version__\\)\")",
-      "Bash(python build_sales_doc.py)"
+      "Bash(python build_sales_doc.py)",
+      "Bash(curl -s http://localhost:5173/)",
+      "Bash(curl -s \"http://localhost:5173/src/components/auth/Login.jsx\")",
+      "Bash(curl -s -o /dev/null -w \"FS:%{http_code} size:%{size_download}\\\\n\" \"http://localhost:5173/logos/FS.png?import\")",
+      "Bash(curl -s -o /dev/null -w \"FSSML:%{http_code} size:%{size_download}\\\\n\" \"http://localhost:5173/logos/FSSML.png?import\")",
+      "Bash(curl -s \"http://localhost:5173/logos/FS.png?import\")",
+      "Bash(curl -s -o /dev/null -w \"FS:%{http_code} size:%{size_download}\\\\n\" \"http://localhost:5173/logos/FS.png\")",
+      "Bash(curl -s -o /dev/null -w \"FSSML:%{http_code} size:%{size_download}\\\\n\" \"http://localhost:5173/logos/FSSML.png\")",
+      "Bash(curl -s -o /dev/null -w \"stoma:%{http_code} size:%{size_download}\\\\n\" \"http://localhost:5173/logos/stoma.png\")",
+      "Bash(curl -s -o /dev/null -w \"login:%{http_code}\\\\n\" \"http://localhost:5173/src/components/auth/Login.jsx\")",
+      "Bash(curl -s -o /dev/null -w \"shell:%{http_code}\\\\n\" \"http://localhost:5173/src/components/layout/AppShell.jsx\")",
+      "Bash(curl -s -o /dev/null -w \"css:%{http_code}\\\\n\" \"http://localhost:5173/src/index.css\")"
     ],
     "additionalDirectories": [
       "\\tmp",
