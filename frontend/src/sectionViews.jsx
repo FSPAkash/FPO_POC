@@ -298,17 +298,6 @@ function AgentStatusBadge({ agentConfig }) {
   );
 }
 
-function AgentModeNotice({ agentConfig }) {
-  if (!agentConfig) return null;
-  if (!agentConfig.agent_auto_reply_enabled) {
-    return <p className="agent-mode-note">Manual data profile is active. Farmer messages stay in the board until the office replies or explicitly asks the agent to assist.</p>;
-  }
-  if (!agentConfig.agent_available) {
-    return <p className="agent-mode-note">Agent auto-replies every farmer message. `OPENAI_API_KEY` not set - running heuristic fallback; unclear messages auto-escalate.</p>;
-  }
-  return <p className="agent-mode-note">Agent auto-replies every farmer message ({agentConfig.agent_provider} / {agentConfig.agent_model}). Only escalations appear on the Ticket Board.</p>;
-}
-
 export function renderSectionView(active, sectionData, handlers) {
   if (!sectionData) {
     return <div className="empty-section glass-light">No data loaded yet for this section.</div>;
@@ -1558,36 +1547,7 @@ function WhatsAppDemoSectionV2({ sectionData, handlers }) {
 
   return (
     <div className="stack">
-      <AgentModeNotice agentConfig={agentConfig} />
       <div className="whatsapp-layout">
-        <div className="phone-column">
-          <label className="field-inline"><span>Farmer phone:</span><select value={selectedFarmerId} onChange={(event) => { const fid = event.target.value; setSelectedFarmerId(fid); const ticket = inbox.find((row) => row.farmer_id === fid); setSelectedMessageId(ticket ? ticket.id : ""); }}>{farmerOptions.map((row) => <option key={row.id} value={row.id}>{row.name} - {row.village}</option>)}</select></label>
-          <div className="phone-frame">
-            <div className="phone-screen">
-              <div className="wa-header"><div className="wa-avatar" /><div><div className="wa-name">FPO Help Desk</div><div className="wa-status">{selectedFarmer?.name || "No farmer selected"}</div></div></div>
-              <div className="wa-thread">
-                {farmerThreadLoading ? <p className="wa-queue-empty">Loading thread...</p> : null}
-                {!farmerThreadLoading && !farmerThreadRows.length ? <p className="wa-queue-empty">No messages yet for this farmer.</p> : null}
-                {farmerThreadRows.slice(-18).map((row) => (
-                  <div key={row.id} className={`wa-bubble ${row.direction === "incoming" ? "outgoing" : "incoming"}`}>
-                    <div>{row.text}</div>
-                    <div className="wa-time">{formatDateTime(row.timestamp)}</div>
-                  </div>
-                ))}
-              </div>
-              <form className="wa-input-bar" onSubmit={submitFarmerMessage}>
-                <input className="wa-input" value={farmerText} onChange={(event) => setFarmerText(event.target.value)} placeholder="Type farmer message..." />
-                <button type="submit" className="wa-send-btn" disabled={!canCommunicate || !selectedFarmerId || !farmerText.trim()}><span>{">"}</span></button>
-              </form>
-            </div>
-          </div>
-          <div className="scenario-pill-row">
-            <button type="button" className="btn-ghost btn-small" onClick={() => setFarmerText(`Need 5 bags urea for ${selectedFarmer?.primary_crop || "crop"}.`)}>Input Request</button>
-            <button type="button" className="btn-ghost btn-small" onClick={() => setFarmerText(`What is today's mandi rate for ${selectedFarmer?.primary_crop || "crop"}...`)}>Price Query</button>
-            <button type="button" className="btn-ghost btn-small" onClick={() => setFarmerText(`Leaves on my ${selectedFarmer?.primary_crop || "crop"} are yellow.`)}>Disease Query</button>
-          </div>
-        </div>
-
         <div className="office-console glass-normal">
           <div className="jira-board-layout">
             <div className="jira-board-panel">
@@ -4371,7 +4331,6 @@ const escalationOpenCount = inboxAll.filter((row) => row.escalated && row.status
         <button type="button" className={`pill-tab ${activeTab === "escalations" ? "active" : ""}`} onClick={() => setActiveTab("escalations")}>Escalations</button>
         <button type="button" className={`pill-tab ${activeTab === "broadcasts" ? "active" : ""}`} onClick={() => setActiveTab("broadcasts")}>Broadcasts</button>
       </div>
-      <AgentModeNotice agentConfig={agentConfig} />
 
       {activeTab === "broadcasts" ? (
         <div className="broadcast-grid">

@@ -80,7 +80,16 @@
       "Bash(curl -s -o /dev/null -w \"stoma:%{http_code} size:%{size_download}\\\\n\" \"http://localhost:5173/logos/stoma.png\")",
       "Bash(curl -s -o /dev/null -w \"login:%{http_code}\\\\n\" \"http://localhost:5173/src/components/auth/Login.jsx\")",
       "Bash(curl -s -o /dev/null -w \"shell:%{http_code}\\\\n\" \"http://localhost:5173/src/components/layout/AppShell.jsx\")",
-      "Bash(curl -s -o /dev/null -w \"css:%{http_code}\\\\n\" \"http://localhost:5173/src/index.css\")"
+      "Bash(curl -s -o /dev/null -w \"css:%{http_code}\\\\n\" \"http://localhost:5173/src/index.css\")",
+      "Bash(curl -s -o /dev/null -w \"views:%{http_code}\\\\n\" \"http://localhost:5173/src/sectionViews.jsx\")",
+      "Bash(curl -s -o /dev/null -w \"app:%{http_code}\\\\n\" \"http://localhost:5173/src/App.jsx\")",
+      "Bash(curl -s -o /dev/null -w \"phone:%{http_code}\\\\n\" \"http://localhost:5173/src/components/phone/FloatingFarmerPhone.jsx\")",
+      "Bash(curl -s -o /dev/null -w \"phone:%{http_code}\\\\n\" \"http://localhost:5183/src/components/phone/FloatingFarmerPhone.jsx\")",
+      "Bash(curl -s \"http://localhost:5183/src/components/phone/FloatingFarmerPhone.jsx\")",
+      "Bash(curl -s -o /dev/null -w \"phone:%{http_code}\\\\n\" \"http://localhost:5184/src/components/phone/FloatingFarmerPhone.jsx\")",
+      "PowerShell(& \"C:\\\\Users\\\\AkashPatil\\\\POC_FPO\\\\demo_video\\\\build_demo_video.ps1\")",
+      "PowerShell(Get-Command ffmpeg -ErrorAction SilentlyContinue)",
+      "PowerShell($pptPath = \"C:\\\\Users\\\\AkashPatil\\\\POC_FPO\\\\demo_video\\\\FPO_Integrated_OS_Walkthrough.pptx\"; $outDir = \"C:\\\\tmp\\\\demo_preview\"; New-Item -ItemType Directory -Force -Path $outDir | Out-Null; $pp = New-Object -ComObject PowerPoint.Application; $pp.Visible = 1; $prs = $pp.Presentations.Open\\($pptPath, $true, $false, $false\\); foreach \\($i in 1,3,8\\) { $prs.Slides.Item\\($i\\).Export\\(\"$outDir\\\\slide-$i.png\", \"PNG\", 1280, 720\\) }; $prs.Close\\(\\); $pp.Quit\\(\\); Get-ChildItem $outDir)"
     ],
     "additionalDirectories": [
       "\\tmp",

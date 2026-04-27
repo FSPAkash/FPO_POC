@@ -3,10 +3,13 @@ import { api, setApiRole } from "./api";
 import { AppShell } from "./components/layout/AppShell";
 import { SectionPanel } from "./components/sections/SectionPanel";
 import { Login } from "./components/auth/Login";
-import { SECTION_SUBTITLES, SECTION_TITLES } from "./theme";
+import { FloatingFarmerPhone } from "./components/phone/FloatingFarmerPhone";
+import { SalesCheatsheet } from "./components/sales/SalesCheatsheet";
+import { SECTION_TITLES } from "./theme";
 import { renderSectionView } from "./sectionViews";
 
 const AUTH_STORAGE_KEY = "fpo_auth_user";
+const VALID_SECTION_IDS = new Set(["command", "walkthrough", "whatsapp", "registry", "operations", "market", "communication", "carbon", "governance"]);
 
 const DEMO_ROLES = [
   "Super Admin",
@@ -66,19 +69,61 @@ const ROLE_ACTIONS = {
   Viewer: new Set()
 };
 
-export default function App() {
-  const [authUser, setAuthUser] = useState(() => {
+function getBootConfig() {
+  if (typeof window === "undefined") {
+    return {
+      authUser: null,
+      active: "command",
+      role: "Super Admin",
+      seedInput: "42",
+      dataProfile: "full_data",
+      captureMode: false,
+      showPhone: true,
+      showCheatsheet: true
+    };
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const captureMode = ["1", "true", "yes"].includes((params.get("capture") || "").toLowerCase());
+  const requestedSection = params.get("section");
+  const requestedRole = params.get("role");
+  const autologin = params.get("autologin");
+  const seed = params.get("seed");
+  const profile = params.get("profile");
+  const phone = params.get("phone");
+  const coach = params.get("coach");
+
+  let authUser = null;
+  if (autologin) {
+    authUser = { username: autologin };
+  } else {
     try {
       const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
-      return raw ? JSON.parse(raw) : null;
+      authUser = raw ? JSON.parse(raw) : null;
     } catch {
-      return null;
+      authUser = null;
     }
-  });
-  const [active, setActive] = useState("command");
-  const [role, setRole] = useState("Super Admin");
-  const [seedInput, setSeedInput] = useState("42");
-  const [dataProfile, setDataProfile] = useState("full_data");
+  }
+
+  return {
+    authUser,
+    active: VALID_SECTION_IDS.has(requestedSection) ? requestedSection : "command",
+    role: DEMO_ROLES.includes(requestedRole) ? requestedRole : "Super Admin",
+    seedInput: seed ? String(seed) : "42",
+    dataProfile: profile || "full_data",
+    captureMode,
+    showPhone: phone ? ["1", "true", "yes"].includes(phone.toLowerCase()) : !captureMode,
+    showCheatsheet: coach ? ["1", "true", "yes"].includes(coach.toLowerCase()) : !captureMode
+  };
+}
+
+export default function App() {
+  const bootConfig = useMemo(() => getBootConfig(), []);
+  const [authUser, setAuthUser] = useState(bootConfig.authUser);
+  const [active, setActive] = useState(bootConfig.active);
+  const [role, setRole] = useState(bootConfig.role);
+  const [seedInput, setSeedInput] = useState(bootConfig.seedInput);
+  const [dataProfile, setDataProfile] = useState(bootConfig.dataProfile);
   const [dataProfiles, setDataProfiles] = useState([
     { id: "full_data", label: "Full Data" },
     { id: "agentic_work", label: "Agentic Work" }
@@ -650,7 +695,6 @@ export default function App() {
       <>
         <SectionPanel
           title={active === "command" ? null : SECTION_TITLES[active]}
-          subtitle={active === "command" ? null : SECTION_SUBTITLES[active]}
         >
           {loading ? <p className="info-banner">Loading live synthetic data...</p> : null}
           {!loading && !error
@@ -699,6 +743,13 @@ export default function App() {
           {info ? <p className="info-banner success">{info}</p> : null}
           {error ? <p className="info-banner error">{error}</p> : null}
         </div>
+        {bootConfig.showPhone ? (
+          <FloatingFarmerPhone
+            canCommunicate={canAction("communicate")}
+            onActivity={() => refreshSections(["whatsapp", "communication", "command"])}
+          />
+        ) : null}
+        {bootConfig.showCheatsheet ? <SalesCheatsheet section={active} role={role} canAction={canAction} /> : null}
       </>
     </AppShell>
   );

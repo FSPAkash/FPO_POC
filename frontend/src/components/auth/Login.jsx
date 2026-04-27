@@ -89,115 +89,119 @@ export function Login({ onLogin }) {
     <div className="login-root">
       <div className="login-bg-orb login-bg-orb-a" aria-hidden="true" />
       <div className="login-bg-orb login-bg-orb-b" aria-hidden="true" />
-      <div className="login-card">
-        <div className="login-hero" aria-hidden="true">
-          <svg className="login-mesh" viewBox={`0 0 ${VIEW_W} ${VIEW_H}`} preserveAspectRatio="xMidYMid meet">
-            <defs>
-              <radialGradient id="meshGlow" cx="50%" cy="50%" r="50%">
-                <stop offset="0%" stopColor="#4CAF50" stopOpacity="0.18" />
-                <stop offset="70%" stopColor="#4CAF50" stopOpacity="0" />
-              </radialGradient>
-              {AGENTS.map((agent, i) => (
-                <radialGradient key={agent.short} id={`dotGlow-${i}`} cx="50%" cy="50%" r="50%">
-                  <stop offset="0%" stopColor={agent.color} stopOpacity="0.35" />
-                  <stop offset="100%" stopColor={agent.color} stopOpacity="0" />
+      <div className="login-stack">
+        <div className="login-hero-shell" aria-hidden="true">
+          <div className="login-hero">
+            <svg className="login-mesh" viewBox={`0 0 ${VIEW_W} ${VIEW_H}`} preserveAspectRatio="xMidYMid meet">
+              <defs>
+                <radialGradient id="meshGlow" cx="50%" cy="50%" r="50%">
+                  <stop offset="0%" stopColor="#4CAF50" stopOpacity="0.18" />
+                  <stop offset="70%" stopColor="#4CAF50" stopOpacity="0" />
                 </radialGradient>
-              ))}
-            </defs>
+                {AGENTS.map((agent, i) => (
+                  <radialGradient key={agent.short} id={`dotGlow-${i}`} cx="50%" cy="50%" r="50%">
+                    <stop offset="0%" stopColor={agent.color} stopOpacity="0.35" />
+                    <stop offset="100%" stopColor={agent.color} stopOpacity="0" />
+                  </radialGradient>
+                ))}
+              </defs>
 
-            <ellipse cx={CENTER.x} cy={CENTER.y} rx="160" ry="70" fill="url(#meshGlow)" />
+              <ellipse cx={CENTER.x} cy={CENTER.y} rx="160" ry="70" fill="url(#meshGlow)" />
 
-            {flows.map((flow, i) => {
-              const a = resolve(flow.from);
-              const b = resolve(flow.to);
-              const curve = flow.kind === "peer" ? flow.curve : 0;
-              const d = curvedPath(a, b, curve);
-              return (
-                <path
-                  key={`track-${i}`}
-                  d={d}
-                  fill="none"
-                  stroke={flowColor(flow)}
-                  strokeOpacity={flow.kind === "peer" ? 0.08 : 0.14}
-                  strokeWidth="0.8"
-                  strokeLinecap="round"
-                />
-              );
-            })}
+              {flows.map((flow, i) => {
+                const a = resolve(flow.from);
+                const b = resolve(flow.to);
+                const curve = flow.kind === "peer" ? flow.curve : 0;
+                const d = curvedPath(a, b, curve);
+                return (
+                  <path
+                    key={`track-${i}`}
+                    d={d}
+                    fill="none"
+                    stroke={flowColor(flow)}
+                    strokeOpacity={flow.kind === "peer" ? 0.08 : 0.14}
+                    strokeWidth="0.8"
+                    strokeLinecap="round"
+                  />
+                );
+              })}
 
-            {flows.map((flow, i) => {
-              const a = resolve(flow.from);
-              const b = resolve(flow.to);
-              const curve = flow.kind === "peer" ? flow.curve : 0;
-              const d = curvedPath(a, b, curve);
-              const color = flowColor(flow);
-              return (
-                <g key={`pulse-${i}`}>
-                  <circle r={flow.kind === "peer" ? 1.8 : 2.4} fill={color} opacity="0">
-                    <animateMotion dur={`${flow.duration}s`} begin={`${flow.delay}s`} repeatCount="indefinite" path={d} />
-                    <animate attributeName="opacity"
-                      values="0;0;1;1;0"
-                      keyTimes="0;0.05;0.15;0.85;1"
-                      dur={`${flow.duration}s`}
-                      begin={`${flow.delay}s`}
-                      repeatCount="indefinite" />
-                  </circle>
+              {flows.map((flow, i) => {
+                const a = resolve(flow.from);
+                const b = resolve(flow.to);
+                const curve = flow.kind === "peer" ? flow.curve : 0;
+                const d = curvedPath(a, b, curve);
+                const color = flowColor(flow);
+                return (
+                  <g key={`pulse-${i}`}>
+                    <circle r={flow.kind === "peer" ? 1.8 : 2.4} fill={color} opacity="0">
+                      <animateMotion dur={`${flow.duration}s`} begin={`${flow.delay}s`} repeatCount="indefinite" path={d} />
+                      <animate attributeName="opacity"
+                        values="0;0;1;1;0"
+                        keyTimes="0;0.05;0.15;0.85;1"
+                        dur={`${flow.duration}s`}
+                        begin={`${flow.delay}s`}
+                        repeatCount="indefinite" />
+                    </circle>
+                  </g>
+                );
+              })}
+
+              {positions.map((pos, i) => (
+                <g key={`node-${i}`} className="login-node" style={{ animationDelay: `${i * 0.1 + 0.15}s` }}>
+                  <circle cx={pos.x} cy={pos.y} r={AGENTS[i].size * 2.2} fill={`url(#dotGlow-${i})`} />
+                  <circle
+                    cx={pos.x} cy={pos.y} r={AGENTS[i].size}
+                    fill="#fff" stroke={AGENTS[i].color} strokeWidth="1.8"
+                    className="login-node-dot"
+                    style={{ color: AGENTS[i].color, animationDelay: `${i * 0.45}s` }}
+                  />
                 </g>
-              );
-            })}
-
-            {positions.map((pos, i) => (
-              <g key={`node-${i}`} className="login-node" style={{ animationDelay: `${i * 0.1 + 0.15}s` }}>
-                <circle cx={pos.x} cy={pos.y} r={AGENTS[i].size * 2.2} fill={`url(#dotGlow-${i})`} />
-                <circle
-                  cx={pos.x} cy={pos.y} r={AGENTS[i].size}
-                  fill="#fff" stroke={AGENTS[i].color} strokeWidth="1.8"
-                  className="login-node-dot"
-                  style={{ color: AGENTS[i].color, animationDelay: `${i * 0.45}s` }}
-                />
-              </g>
-            ))}
-          </svg>
-          <div className="login-orbit-core">
-            <img src={stomaLogo} alt="" className="login-orbit-logo" />
+              ))}
+            </svg>
+            <div className="login-orbit-core">
+              <img src={stomaLogo} alt="" className="login-orbit-logo" />
+            </div>
           </div>
         </div>
-        <div className="login-header">
-          <h1 className="login-title">FPO Integrated OS</h1>
-          <p className="login-subtitle">Five agents. One command center.</p>
-        </div>
-        <form className="login-form" onSubmit={handleSubmit}>
-          <label className="login-field">
-            <span>Username</span>
-            <input
-              type="text"
-              value={username}
-              onChange={(event) => setUsername(event.target.value)}
-              autoComplete="username"
-              placeholder="Enter username"
-              required
-              autoFocus
-            />
-          </label>
-          <label className="login-field">
-            <span>Password</span>
-            <input
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              autoComplete="current-password"
-              placeholder="Enter password"
-              required
-            />
-          </label>
-          {error ? <p className="login-error">{error}</p> : null}
-          <button type="submit" className="btn-primary login-submit" disabled={busy}>
-            {busy ? "Signing in..." : "Sign in"}
-          </button>
-        </form>
-        <div className="login-footer">
-          <img src={companyIcon} alt="FSSML" className="login-footer-icon" />
-          <span>powered by Findability Sciences</span>
+        <div className="login-card">
+          <div className="login-header">
+            <h1 className="login-title">FPO Integrated OS</h1>
+            <p className="login-subtitle">Five agents. One command center.</p>
+          </div>
+          <form className="login-form" onSubmit={handleSubmit}>
+            <label className="login-field">
+              <span>Username</span>
+              <input
+                type="text"
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
+                autoComplete="username"
+                placeholder="Enter username"
+                required
+                autoFocus
+              />
+            </label>
+            <label className="login-field">
+              <span>Password</span>
+              <input
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                autoComplete="current-password"
+                placeholder="Enter password"
+                required
+              />
+            </label>
+            {error ? <p className="login-error">{error}</p> : null}
+            <button type="submit" className="btn-primary login-submit" disabled={busy}>
+              {busy ? "Signing in..." : "Sign in"}
+            </button>
+          </form>
+          <div className="login-footer">
+            <img src={companyIcon} alt="FSSML" className="login-footer-icon" />
+            <span>powered by Findability Sciences</span>
+          </div>
         </div>
       </div>
     </div>

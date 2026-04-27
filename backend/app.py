@@ -244,6 +244,77 @@ def _reply_mode_for_profile(profile: str | None) -> str:
     return "agentic" if profile == "agentic_work" else "manual"
 
 
+INPUT_REVIEW_ESCALATION_CATEGORY = "input_review"
+
+
+def _escalation_status_for_message_status(status: str) -> str:
+    if status == "resolved":
+        return "closed"
+    if status == "in_progress":
+        return "in_progress"
+    return "open"
+
+
+def _input_review_reason(demand: dict[str, Any]) -> str:
+    rationale = [str(item).strip() for item in demand.get("trust_rationale", []) if str(item).strip()]
+    if rationale:
+        return "; ".join(rationale[:2])
+    return "Input request confidence is below the agent autonomy threshold."
+
+
+def _reconcile_input_review_escalations(dataset: dict[str, Any]) -> None:
+    messages_by_id = {str(message.get("id", "")): message for message in dataset.get("message_logs", []) if message.get("id")}
+    escalations_by_message = {
+        str(escalation.get("message_id", "")): escalation
+        for escalation in dataset.get("escalations", [])
+        if escalation.get("message_id")
+    }
+    for demand in dataset.get("input_demands", []):
+        if str(demand.get("source", "")).strip().lower() != "farmer_chat":
+            continue
+        message_id = str(demand.get("source_ref") or "").strip()
+        if not message_id:
+            continue
+        message = messages_by_id.get(message_id)
+        if not message:
+            continue
+        escalation = escalations_by_message.get(message_id)
+        needs_review = str(demand.get("status") or "").strip().lower() == "needs_review"
+        if needs_review:
+            reason = _input_review_reason(demand)
+            message["escalated"] = True
+            message["escalation_category"] = INPUT_REVIEW_ESCALATION_CATEGORY
+            message["escalation_reason"] = reason
+            if escalation:
+                escalation["category"] = INPUT_REVIEW_ESCALATION_CATEGORY
+                escalation["reason"] = reason
+                escalation["status"] = _escalation_status_for_message_status(str(message.get("status") or "pending"))
+                escalation.setdefault("owner", "FPO Admin")
+                escalation.setdefault("created_at", _utc_now())
+                continue
+            new_escalation = {
+                "id": _next_id("ESC", dataset["escalations"]),
+                "message_id": message_id,
+                "farmer_id": message["farmer_id"],
+                "disease_case_id": None,
+                "category": INPUT_REVIEW_ESCALATION_CATEGORY,
+                "reason": reason,
+                "owner": "FPO Admin",
+                "status": _escalation_status_for_message_status(str(message.get("status") or "pending")),
+                "created_at": _utc_now(),
+            }
+            dataset["escalations"].append(new_escalation)
+            escalations_by_message[message_id] = new_escalation
+            continue
+
+        if message.get("escalation_category") == INPUT_REVIEW_ESCALATION_CATEGORY:
+            message["escalated"] = False
+            message["escalation_category"] = "none"
+            message["escalation_reason"] = ""
+        if escalation and escalation.get("category") == INPUT_REVIEW_ESCALATION_CATEGORY:
+            escalation["status"] = "closed"
+
+
 def _normalize_dataset(dataset: dict[str, Any]) -> dict[str, Any]:
     dataset.setdefault("seed", 42)
     dataset.setdefault("data_profile", "full_data")
@@ -311,6 +382,7 @@ def _normalize_dataset(dataset: dict[str, Any]) -> dict[str, Any]:
         demand.setdefault("reviewed_by", None)
         demand.setdefault("reviewed_at", None)
         demand.setdefault("review_notes", None)
+    _reconcile_input_review_escalations(dataset)
 
     for pr in dataset.get("purchase_requests", []):
         pr.setdefault("input_demand_ids", [])
@@ -806,11 +878,7 @@ def _message_status_from_escalation(status: str) -> str:
 
 
 def _escalation_status_from_message(status: str) -> str:
-    if status == "resolved":
-        return "closed"
-    if status == "in_progress":
-        return "in_progress"
-    return "open"
+    return _escalation_status_for_message_status(status)
 
 
 def _sync_incoming_chat_status(message_id: str, status: str) -> None:
@@ -963,6 +1031,9 @@ def _sync_message_from_demand(demand: dict[str, Any], *, reply_text: str | None 
             _add_message_response(message, reply_text)
         else:
             _set_message_status_fields(message, "resolved")
+    intents = {intent for intent in _message_intents(message) if intent != "general_query"}
+    if intents == {"input_request"} and message.get("escalated"):
+        _clear_message_escalation(message)
 
 
 def _communication_settings() -> dict[str, Any]:
@@ -1444,6 +1515,7 @@ def _handle_input_request_agentically(farmer: dict[str, Any], target_msg: dict[s
             target_msg,
             reason="Input demand record was not created correctly.",
             reply_text="I could not confirm the input request details. The FPO office will review this for you.",
+            category=INPUT_REVIEW_ESCALATION_CATEGORY,
             run=run,
         )
     if demand.get("status") == "needs_review" or int(demand.get("trust_score", 0)) < INPUT_AUTONOMY_TRUST_THRESHOLD:
@@ -1455,6 +1527,7 @@ def _handle_input_request_agentically(farmer: dict[str, Any], target_msg: dict[s
                 f"I understood that you may need {demand['item_name']}, but I am not confident enough on the exact quantity. "
                 "The FPO office will confirm it before actioning the request."
             ),
+            category=INPUT_REVIEW_ESCALATION_CATEGORY,
             run=run,
         )
 
@@ -1465,6 +1538,7 @@ def _handle_input_request_agentically(farmer: dict[str, Any], target_msg: dict[s
             target_msg,
             reason=f"Item {demand.get('item_id')} was not found in the catalog.",
             reply_text="I could not verify the requested input in the catalog. The office will review it.",
+            category=INPUT_REVIEW_ESCALATION_CATEGORY,
             run=run,
         )
 
@@ -1485,6 +1559,7 @@ def _handle_input_request_agentically(farmer: dict[str, Any], target_msg: dict[s
                 target_msg,
                 reason=issue_error or "Agent could not issue stock.",
                 reply_text="I found stock, but this issue needs office approval before dispatch.",
+                category="approval",
                 run=run,
             )
         reply_text = (
@@ -1550,6 +1625,7 @@ def _handle_input_request_agentically(farmer: dict[str, Any], target_msg: dict[s
                 f"I captured your {item['name']} request and prepared procurement request {pr['id']}. "
                 "It now needs FPO approval because it is above the autonomous approval limit."
             ),
+            category="approval",
             run=run,
         )
 
@@ -3049,6 +3125,23 @@ def _agent_command_center_payload() -> dict[str, Any]:
     pending_review = [row for row in DATASET["input_demands"] if row.get("status") == "needs_review"]
     open_escalations = [row for row in DATASET["escalations"] if row.get("status") != "closed"]
     pending_approvals = [row for row in DATASET["approval_logs"] if row.get("status") == "pending"]
+    represented_message_ids = {
+        str(row.get("source_ref") or "").strip()
+        for row in pending_review
+        if str(row.get("source_ref") or "").strip()
+    }
+    purchase_requests_by_id = {str(row.get("id", "")): row for row in DATASET.get("purchase_requests", [])}
+    for approval in pending_approvals:
+        entity_id = str(approval.get("entity_id", "")).strip()
+        pr = purchase_requests_by_id.get(entity_id)
+        source_ref = str((pr or {}).get("source_ref") or "").strip()
+        if source_ref.startswith("MSG_"):
+            represented_message_ids.add(source_ref)
+    open_escalations = [
+        row
+        for row in open_escalations
+        if str(row.get("message_id") or "").strip() not in represented_message_ids
+    ]
     fulfillment_queue = []
     for demand in sorted(DATASET["input_demands"], key=lambda row: row.get("request_date", ""), reverse=True)[:80]:
         if demand.get("status") not in {"captured", "aggregated", "procured", "needs_review"}:
