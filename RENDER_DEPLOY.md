@@ -63,6 +63,7 @@ If you ever create the services manually instead of using the Blueprint:
 - Rewrite rule:
   - source: `/*`
   - destination: `/index.html`
+- Do not set `plan: free` for the static site in `render.yaml`. In Render's current Blueprint validation, the frontend static site should omit the `plan` field entirely.
 
 ## Important Notes
 
