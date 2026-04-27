@@ -100,5 +100,7 @@ An optional GitHub Actions keep-alive workflow is included at `.github/workflows
 
 - This is a POC. Intelligence outputs are rules and synthetic scenarios, not production ML.
 - Agent calls use the backend service's `OPENAI_API_KEY`; the frontend does not need that secret.
+- Demo login is verified by the backend and uses a signed bearer token. On Render, keep `FPO_AUTH_SECRET` and any `FPO_DEMO_USERS` override on the backend service only.
+- Backend CORS is limited to local development and the configured Render frontend origin.
 - On Render free web services, local filesystem changes are not durable across spin-downs or redeploys.
 - If you enable the keep-alive workflow, the backend will stay warm but will use nearly all of the free monthly instance hours for that workspace.

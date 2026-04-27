@@ -3,16 +3,23 @@ const JSON_HEADERS = {
 };
 
 let currentRole = "Super Admin";
+let authToken = "";
 const API_BASE_URL = String(import.meta.env.VITE_API_BASE_URL || "").replace(/\/+$/, "");
 
 export function setApiRole(role) {
   currentRole = role || "Super Admin";
 }
 
+export function setApiAuthToken(token) {
+  authToken = token || "";
+}
+
 async function parseResponse(response) {
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`Request failed (${response.status}): ${text || response.statusText}`);
+    const error = new Error(`Request failed (${response.status}): ${text || response.statusText}`);
+    error.status = response.status;
+    throw error;
   }
   return response.json();
 }
@@ -20,16 +27,22 @@ async function parseResponse(response) {
 async function parseBlobResponse(response) {
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`Request failed (${response.status}): ${text || response.statusText}`);
+    const error = new Error(`Request failed (${response.status}): ${text || response.statusText}`);
+    error.status = response.status;
+    throw error;
   }
   return response.blob();
 }
 
 function requestHeaders() {
-  return {
+  const headers = {
     ...JSON_HEADERS,
     "X-Demo-Role": currentRole
   };
+  if (authToken) {
+    headers.Authorization = `Bearer ${authToken}`;
+  }
+  return headers;
 }
 
 function resolveApiPath(path) {
@@ -92,6 +105,7 @@ export async function getBlob(path) {
 }
 
 export const api = {
+  login: (username, password) => postJson("/api/auth/login", { username, password }),
   health: () => getJson("/api/health"),
   lookups: () => getJson("/api/lookups"),
   dashboardSummary: () => getJson("/api/dashboard/summary"),

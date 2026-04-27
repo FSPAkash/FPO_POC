@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, setApiRole } from "./api";
+import { api, setApiAuthToken, setApiRole } from "./api";
 import { AppShell } from "./components/layout/AppShell";
 import { SectionPanel } from "./components/sections/SectionPanel";
 import { Login } from "./components/auth/Login";
@@ -87,22 +87,18 @@ function getBootConfig() {
   const captureMode = ["1", "true", "yes"].includes((params.get("capture") || "").toLowerCase());
   const requestedSection = params.get("section");
   const requestedRole = params.get("role");
-  const autologin = params.get("autologin");
   const seed = params.get("seed");
   const profile = params.get("profile");
   const phone = params.get("phone");
   const coach = params.get("coach");
 
   let authUser = null;
-  if (autologin) {
-    authUser = { username: autologin };
-  } else {
-    try {
-      const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
-      authUser = raw ? JSON.parse(raw) : null;
-    } catch {
-      authUser = null;
-    }
+  try {
+    const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    authUser = parsed?.token ? parsed : null;
+  } catch {
+    authUser = null;
   }
 
   return {
@@ -148,6 +144,10 @@ export default function App() {
   useEffect(() => {
     setApiRole(role);
   }, [role]);
+
+  useEffect(() => {
+    setApiAuthToken(authUser?.token || "");
+  }, [authUser]);
 
   useEffect(() => {
     if (!info) {
@@ -267,6 +267,10 @@ export default function App() {
       const payload = await loaders[section]();
       setData((current) => ({ ...current, [section]: payload }));
     } catch (loadError) {
+      if (loadError.status === 401) {
+        handleLogout();
+        return;
+      }
       setError(loadError.message || "Something went wrong while loading the section.");
     } finally {
       setLoading(false);
@@ -274,13 +278,18 @@ export default function App() {
   }
 
   useEffect(() => {
+    if (!authUser) {
+      return;
+    }
     loadSection(active);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, role]);
+  }, [active, role, authUser]);
 
   useEffect(() => {
-    loadHealthMeta({ syncSeedInput: true, syncProfile: true });
-  }, []);
+    if (authUser) {
+      loadHealthMeta({ syncSeedInput: true, syncProfile: true });
+    }
+  }, [authUser]);
 
   async function loadHealthMeta({ syncSeedInput = false, syncProfile = false } = {}) {
     const health = await api.health();
@@ -352,6 +361,10 @@ export default function App() {
       setInfo(successMessage);
       return result;
     } catch (taskError) {
+      if (taskError.status === 401) {
+        handleLogout();
+        return null;
+      }
       setError(taskError.message || "Action failed.");
     } finally {
       setActionBusy(false);
@@ -652,7 +665,14 @@ export default function App() {
     );
   }
 
-  function handleLogin(user) {
+  async function handleLogin(credentials) {
+    const session = await api.login(credentials.username, credentials.password);
+    const user = {
+      username: session.user?.username || credentials.username,
+      token: session.token,
+      expires_in: session.expires_in
+    };
+    setApiAuthToken(user.token);
     try {
       window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(user));
     } catch {
@@ -667,6 +687,7 @@ export default function App() {
     } catch {
       // ignore
     }
+    setApiAuthToken("");
     setAuthUser(null);
   }
 

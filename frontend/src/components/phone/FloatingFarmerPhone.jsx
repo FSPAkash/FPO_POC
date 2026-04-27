@@ -11,7 +11,7 @@ function formatTime(value) {
 const DEFAULT_POSITION = { right: 24, bottom: 24 };
 
 export function FloatingFarmerPhone({ canCommunicate = true, onActivity }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   const [farmers, setFarmers] = useState([]);
   const [selectedFarmerId, setSelectedFarmerId] = useState("");
   const [thread, setThread] = useState([]);

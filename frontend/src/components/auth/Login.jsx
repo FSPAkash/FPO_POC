@@ -2,11 +2,6 @@ import { useState } from "react";
 import companyIcon from "../../../logos/FSSML.png";
 import stomaLogo from "../../../logos/stoma.png";
 
-const CREDENTIALS = {
-  Akash: "a1234",
-  Naina: "n1234"
-};
-
 const VIEW_W = 360;
 const VIEW_H = 120;
 const CENTER = { x: VIEW_W / 2, y: VIEW_H / 2 };
@@ -30,15 +25,14 @@ export function Login({ onLogin }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault();
     setError("");
     setBusy(true);
-    const expected = CREDENTIALS[username.trim()];
-    if (expected && expected === password) {
-      onLogin({ username: username.trim() });
-    } else {
-      setError("Invalid username or password.");
+    try {
+      await onLogin({ username: username.trim(), password });
+    } catch (loginError) {
+      setError(loginError.status === 401 ? "Invalid username or password." : loginError.message || "Unable to sign in.");
       setBusy(false);
     }
   }

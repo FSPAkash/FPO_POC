@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import secrets
 from collections import defaultdict
 import csv
 from datetime import date, datetime, timedelta
@@ -17,6 +18,7 @@ except ImportError:  # pragma: no cover
 
 from flask import Flask, jsonify, make_response, request
 from flask_cors import CORS
+from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
 from data_seed import DATASET_PROFILES, compute_dashboard, compute_matching, generate_dataset
 
@@ -84,6 +86,14 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
 }
 
 DATASET_FILE = Path(__file__).with_name("runtime_dataset.json")
+AUTH_TOKEN_MAX_AGE_SECONDS = 60 * 60 * 24
+AUTH_SALT = "fpo-demo-auth-v1"
+AUTH_EXEMPT_PATHS = {"/api/health", "/api/auth/login"}
+_EPHEMERAL_AUTH_SECRET = secrets.token_urlsafe(32)
+DEFAULT_DEMO_USERS = {
+    "Akash": "a1234",
+    "Naina": "n1234",
+}
 
 CROP_REPLY_REFERENCE: dict[str, dict[str, str]] = {
     "Maize": {
@@ -219,7 +229,9 @@ def _utc_now() -> str:
 
 def _actor_role() -> str:
     role = str(request.headers.get("X-Demo-Role", "Super Admin")).strip()
-    return role if role in ROLE_PERMISSIONS else "Viewer"
+    auth = request.environ.get("fpo.auth") if request else None
+    allowed_roles = set(auth.get("roles", ROLE_ORDER)) if isinstance(auth, dict) else set(ROLE_ORDER)
+    return role if role in ROLE_PERMISSIONS and role in allowed_roles else "Viewer"
 
 
 def _require_permission(permission: str) -> tuple[Any, int] | None:
@@ -541,10 +553,100 @@ def _load_dataset(seed: int = 42, profile: str = "full_data") -> dict[str, Any]:
     return dataset
 
 
+def _cors_origins() -> list[str]:
+    configured = [
+        value.strip()
+        for value in str(os.environ.get("CORS_ORIGINS", "")).split(",")
+        if value.strip()
+    ]
+    defaults = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "https://fpo-poc-frontend.onrender.com",
+    ]
+    return list(dict.fromkeys([*configured, *defaults]))
+
+
+def _auth_secret() -> str:
+    return str(os.environ.get("FPO_AUTH_SECRET") or os.environ.get("SECRET_KEY") or _EPHEMERAL_AUTH_SECRET)
+
+
+def _auth_serializer() -> URLSafeTimedSerializer:
+    return URLSafeTimedSerializer(_auth_secret(), salt=AUTH_SALT)
+
+
+def _demo_users() -> dict[str, str]:
+    raw = str(os.environ.get("FPO_DEMO_USERS", "")).strip()
+    if not raw:
+        return DEFAULT_DEMO_USERS.copy()
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        parsed = None
+    if isinstance(parsed, dict):
+        users = {str(username): str(password) for username, password in parsed.items() if str(username).strip()}
+        return users or DEFAULT_DEMO_USERS.copy()
+    users: dict[str, str] = {}
+    for pair in raw.split(","):
+        username, separator, password = pair.partition(":")
+        if separator and username.strip():
+            users[username.strip()] = password
+    return users or DEFAULT_DEMO_USERS.copy()
+
+
+def _issue_auth_token(username: str) -> str:
+    return _auth_serializer().dumps({"username": username, "roles": ROLE_ORDER})
+
+
+def _bearer_token() -> str:
+    value = str(request.headers.get("Authorization", "")).strip()
+    prefix = "Bearer "
+    return value[len(prefix):].strip() if value.startswith(prefix) else ""
+
+
+def _verify_auth_token(token: str) -> dict[str, Any] | None:
+    if not token:
+        return None
+    try:
+        payload = _auth_serializer().loads(token, max_age=AUTH_TOKEN_MAX_AGE_SECONDS)
+    except (BadSignature, SignatureExpired):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    username = str(payload.get("username", "")).strip()
+    if username not in _demo_users():
+        return None
+    roles = [role for role in payload.get("roles", ROLE_ORDER) if role in ROLE_PERMISSIONS]
+    return {"username": username, "roles": roles or ROLE_ORDER}
+
+
 app = Flask(__name__)
-CORS(app)
+app.config["SECRET_KEY"] = _auth_secret()
+CORS(
+    app,
+    resources={
+        r"/api/*": {
+            "origins": _cors_origins(),
+            "allow_headers": ["Content-Type", "Authorization", "X-Demo-Role"],
+            "methods": ["GET", "POST", "OPTIONS"],
+        }
+    },
+)
 
 DATASET = _load_dataset(seed=42, profile="full_data")
+
+
+@app.before_request
+def _authenticate_api_request() -> Any:
+    if request.method == "OPTIONS" or not request.path.startswith("/api/"):
+        return None
+    if request.path in AUTH_EXEMPT_PATHS:
+        return None
+    auth = _verify_auth_token(_bearer_token())
+    if not auth:
+        return jsonify({"error": "Authentication required."}), 401
+    request.environ["fpo.auth"] = auth
+    return None
 
 
 def _append_audit(entity: str, entity_id: str, action: str, notes: str) -> None:
@@ -3382,6 +3484,24 @@ DEMO_STEPS = [
         "section": "carbon",
     },
 ]
+
+
+@app.route("/api/auth/login", methods=["POST"])
+def auth_login() -> Any:
+    body = request.get_json(silent=True) or {}
+    username = str(body.get("username", "")).strip()
+    password = str(body.get("password", ""))
+    expected = _demo_users().get(username)
+    if not expected or not secrets.compare_digest(expected, password):
+        return jsonify({"error": "Invalid username or password."}), 401
+    token = _issue_auth_token(username)
+    return jsonify(
+        {
+            "token": token,
+            "expires_in": AUTH_TOKEN_MAX_AGE_SECONDS,
+            "user": {"username": username, "roles": ROLE_ORDER},
+        }
+    )
 
 
 @app.route("/api/health", methods=["GET"])

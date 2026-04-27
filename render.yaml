@@ -10,6 +10,10 @@ services:
     healthCheckPath: /api/health
     autoDeployTrigger: commit
     envVars:
+      - key: FPO_AUTH_SECRET
+        generateValue: true
+      - key: CORS_ORIGINS
+        value: https://fpo-poc-frontend.onrender.com
       - key: OPENAI_API_KEY
         sync: false
       - key: OPENAI_AGENT_MODEL
