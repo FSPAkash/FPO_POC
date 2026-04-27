@@ -57,13 +57,14 @@ If you ever create the services manually instead of using the Blueprint:
 
 - Root directory: `frontend`
 - Build command: `npm install && npm run build`
-- Publish directory: `frontend/dist`
+- Publish directory: `dist`
 - Environment variables:
   - `VITE_API_BASE_URL` = your backend public URL, for example `https://your-backend.onrender.com`
 - Rewrite rule:
   - source: `/*`
   - destination: `/index.html`
 - Do not set `plan: free` for the static site in `render.yaml`. In Render's current Blueprint validation, the frontend static site should omit the `plan` field entirely.
+- Because this service uses `rootDir: frontend`, the publish directory must be relative to that root directory, so it should be `dist`, not `frontend/dist`.
 
 ## Important Notes
 
