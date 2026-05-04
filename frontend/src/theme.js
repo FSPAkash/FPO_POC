@@ -1,13 +1,13 @@
 export const NAV_ITEMS = [
-  { id: "command", label: "Command", glyph: "CM" },
-  { id: "walkthrough", label: "Walkthrough", glyph: "WT" },
-  { id: "registry", label: "Farmer Network", glyph: "FN" },
-  { id: "operations", label: "Fulfillment", glyph: "FL" },
-  { id: "market", label: "Market Exec", glyph: "MK" },
-  { id: "whatsapp", label: "Handoff Desk", glyph: "EX" },
-  { id: "communication", label: "Campaigns", glyph: "CP" },
-  { id: "governance", label: "Approvals", glyph: "AP" },
-  { id: "carbon", label: "Carbon", glyph: "CB" }
+  { id: "command", label: "Command", glyph: "1" },
+  { id: "walkthrough", label: "Walkthrough", glyph: "2" },
+  { id: "registry", label: "Farmer Network", glyph: "3" },
+  { id: "operations", label: "Fulfillment", glyph: "4" },
+  { id: "market", label: "Market Exec", glyph: "5" },
+  { id: "whatsapp", label: "Handoff Desk", glyph: "6" },
+  { id: "communication", label: "Campaigns", glyph: "7" },
+  { id: "governance", label: "Approvals", glyph: "8" },
+  { id: "carbon", label: "Carbon", glyph: "9" }
 ];
 
 export const SECTION_TITLES = {

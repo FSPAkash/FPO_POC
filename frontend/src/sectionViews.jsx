@@ -117,9 +117,9 @@ const INTENT_LABELS = {
 };
 
 const INTENT_COLORS = {
-  price_query: "#1b5e20",
-  input_request: "#4caf50",
-  advisory: "#6b736b",
+  price_query: "#2d5016",
+  input_request: "#6fad45",
+  advisory: "#6e6e73",
   disease_query: "#ef5350",
   harvest_update: "#ff9800",
   broadcast_ack: "#8a928a"
@@ -377,10 +377,10 @@ function DashboardSection({ sectionData }) {
 }
 
 const AGENT_LAYOUT = {
-  agent_intake:      { order: 0, color: "#388E3C", short: "Intake",      role: "Routes farmer asks" },
-  agent_fulfillment: { order: 1, color: "#4CAF50", short: "Fulfillment", role: "Stock + procurement" },
+  agent_intake:      { order: 0, color: "#4A7C2F", short: "Intake",      role: "Routes farmer asks" },
+  agent_fulfillment: { order: 1, color: "#6FAD45", short: "Fulfillment", role: "Stock + procurement" },
   agent_crop_cycle:  { order: 2, color: "#FFA726", short: "Crop Cycle",  role: "Seasons + harvest" },
-  agent_market:      { order: 3, color: "#1B5E20", short: "Market",      role: "Buyer match + dispatch" },
+  agent_market:      { order: 3, color: "#2D5016", short: "Market",      role: "Buyer match + dispatch" },
   agent_exception:   { order: 4, color: "#EF5350", short: "Handoff",     role: "Human handoff" },
 };
 
@@ -824,12 +824,12 @@ function PulseFeed({ tasks }) {
 
 const WALK_ACTORS = [
   { id: "farmer",            label: "Farmer",       sub: "WhatsApp",         x: 55,  y: 140, kind: "person", color: "#0ea5e9" },
-  { id: "agent_intake",      label: "Intake",       sub: "Routes asks",      x: 170, y: 140, kind: "agent",  color: "#388E3C" },
-  { id: "agent_fulfillment", label: "Fulfillment",  sub: "Stock + PR",       x: 300, y: 55,  kind: "agent",  color: "#4CAF50" },
+  { id: "agent_intake",      label: "Intake",       sub: "Routes asks",      x: 170, y: 140, kind: "agent",  color: "#4A7C2F" },
+  { id: "agent_fulfillment", label: "Fulfillment",  sub: "Stock + PR",       x: 300, y: 55,  kind: "agent",  color: "#6FAD45" },
   { id: "agent_crop_cycle",  label: "Crop Cycle",   sub: "Seasons",          x: 300, y: 225, kind: "agent",  color: "#FFA726" },
   { id: "agent_exception",   label: "Handoff",      sub: "Human handoff",    x: 430, y: 140, kind: "agent",  color: "#EF5350" },
   { id: "fpo_staff",         label: "FPO Staff",    sub: "Approves",         x: 560, y: 140, kind: "person", color: "#7c3aed" },
-  { id: "agent_market",      label: "Market",       sub: "Buyer + dispatch", x: 685, y: 140, kind: "agent",  color: "#1B5E20" },
+  { id: "agent_market",      label: "Market",       sub: "Buyer + dispatch", x: 685, y: 140, kind: "agent",  color: "#2D5016" },
 ];
 
 const WALK_ACTOR_BY_ID = Object.fromEntries(WALK_ACTORS.map((a) => [a.id, a]));
@@ -4358,7 +4358,7 @@ const escalationOpenCount = inboxAll.filter((row) => row.escalated && row.status
                   <div><strong>{pct}%</strong><div className="jira-ticket-submeta">Read rate</div></div>
                 </div>
                 <div style={{ background: "#eee", height: 6, borderRadius: 3, overflow: "hidden" }}>
-                  <div style={{ width: `${pct}%`, height: "100%", background: "#4caf50" }} />
+                  <div style={{ width: `${pct}%`, height: "100%", background: "#6fad45" }} />
                 </div>
                 <div style={{ marginTop: 12 }}>
                   <button type="button" className="btn-ghost btn-small" onClick={() => toggleBroadcast(b.id)}>

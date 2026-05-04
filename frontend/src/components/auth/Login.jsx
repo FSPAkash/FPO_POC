@@ -8,10 +8,10 @@ const CENTER = { x: VIEW_W / 2, y: VIEW_H / 2 };
 
 // asymmetric scatter across wide canvas — xy in viewBox coords, no symmetry
 const AGENTS = [
-  { short: "Intake",      color: "#388E3C", x:  40, y:  38, size: 5 },
-  { short: "Fulfillment", color: "#4CAF50", x: 118, y:  22, size: 6 },
+  { short: "Intake",      color: "#4A7C2F", x:  40, y:  38, size: 5 },
+  { short: "Fulfillment", color: "#6FAD45", x: 118, y:  22, size: 6 },
   { short: "Crop",        color: "#FFA726", x: 238, y:  92, size: 4.5 },
-  { short: "Market",      color: "#1B5E20", x: 322, y:  48, size: 6.5 },
+  { short: "Market",      color: "#2D5016", x: 322, y:  48, size: 6.5 },
   { short: "Handoff",     color: "#EF5350", x:  74, y:  96, size: 4 }
 ];
 
@@ -89,8 +89,8 @@ export function Login({ onLogin }) {
             <svg className="login-mesh" viewBox={`0 0 ${VIEW_W} ${VIEW_H}`} preserveAspectRatio="xMidYMid meet">
               <defs>
                 <radialGradient id="meshGlow" cx="50%" cy="50%" r="50%">
-                  <stop offset="0%" stopColor="#4CAF50" stopOpacity="0.18" />
-                  <stop offset="70%" stopColor="#4CAF50" stopOpacity="0" />
+                  <stop offset="0%" stopColor="#6FAD45" stopOpacity="0.18" />
+                  <stop offset="70%" stopColor="#6FAD45" stopOpacity="0" />
                 </radialGradient>
                 {AGENTS.map((agent, i) => (
                   <radialGradient key={agent.short} id={`dotGlow-${i}`} cx="50%" cy="50%" r="50%">
