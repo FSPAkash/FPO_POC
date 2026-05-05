@@ -818,6 +818,23 @@ def _estimated_harvest_qty_qtl(farmer: dict[str, Any], crop_name: str) -> float:
     return round(base_yield * area, 2)
 
 
+def _farmer_active_crops(farmer_id: str) -> list[str]:
+    crops = {
+        str(row.get("crop_name") or "").strip()
+        for row in DATASET.get("crop_seasons", [])
+        if row.get("farmer_id") == farmer_id and str(row.get("crop_name") or "").strip()
+    }
+    return sorted(crops)
+
+
+def _crop_is_unambiguous(farmer: dict[str, Any]) -> bool:
+    active = _farmer_active_crops(farmer.get("id", ""))
+    if len(active) <= 1:
+        return True
+    primary = str(farmer.get("primary_crop", "") or "").strip()
+    return bool(primary) and active == [primary]
+
+
 def _score_harvest_signal(text: str, farmer: dict[str, Any], season: dict[str, Any] | None) -> tuple[int, list[str]]:
     lowered = (text or "").lower()
     score = 0
@@ -825,9 +842,13 @@ def _score_harvest_signal(text: str, farmer: dict[str, Any], season: dict[str, A
     if any(token in lowered for token in ["harvest", "ready", "picked", "produce ready", "crop ready", "mature"]):
         score += 55
         rationale.append("Strong harvest intent keywords present.")
-    if farmer.get("primary_crop", "").lower() in lowered:
+    crop_name = str(farmer.get("primary_crop", "") or "")
+    if crop_name and crop_name.lower() in lowered:
         score += 20
         rationale.append("Farmer crop referenced explicitly.")
+    elif _crop_is_unambiguous(farmer) and crop_name:
+        score += 20
+        rationale.append(f"Farmer has only one active crop on record ({crop_name}); message can be attributed safely.")
     days_to_harvest = _days_until((season or {}).get("expected_harvest"))
     if days_to_harvest is not None and days_to_harvest <= HARVEST_OUTREACH_WINDOW_DAYS:
         score += 25
@@ -836,6 +857,29 @@ def _score_harvest_signal(text: str, farmer: dict[str, Any], season: dict[str, A
         score += 10
         rationale.append("Farmer has an active crop season on record.")
     return min(score, 100), rationale
+
+
+def _harvest_handoff_reasons(text: str, farmer: dict[str, Any], season: dict[str, Any] | None) -> list[str]:
+    lowered = (text or "").lower()
+    gaps: list[str] = []
+    crop_name = str(farmer.get("primary_crop", "") or "")
+    if crop_name and crop_name.lower() not in lowered and not _crop_is_unambiguous(farmer):
+        gaps.append(f"the message did not mention {crop_name}, so I could not be sure which crop is ready")
+    days_to_harvest = _days_until((season or {}).get("expected_harvest"))
+    if not season:
+        gaps.append("no active crop season is on record for this farmer")
+    elif days_to_harvest is None:
+        gaps.append("expected harvest date is missing on the crop season record")
+    elif days_to_harvest > HARVEST_OUTREACH_WINDOW_DAYS:
+        expected = (season or {}).get("expected_harvest")
+        gaps.append(
+            f"expected harvest is still {days_to_harvest} days away ({expected}), outside the {HARVEST_OUTREACH_WINDOW_DAYS}-day pickup window"
+        )
+    elif days_to_harvest < -HARVEST_OVERDUE_GRACE_DAYS:
+        gaps.append(f"expected harvest was {-days_to_harvest} days ago, the season looks overdue")
+    if not any(token in lowered for token in ["harvest", "ready", "picked", "produce ready", "crop ready", "mature"]):
+        gaps.append("the message did not contain clear harvest-ready wording")
+    return gaps
 
 
 def _open_quantity_for_buyer_demand(demand: dict[str, Any]) -> float:
@@ -1282,9 +1326,36 @@ def _latest_farmer_season(farmer_id: str, crop_name: str) -> dict[str, Any] | No
     }
 
 
+def _detect_crop_mismatch(message_text: str, farmer: dict[str, Any]) -> dict[str, Any] | None:
+    message = (message_text or "").lower()
+    matched_crop = None
+    for crop_name, reference in CROP_REPLY_REFERENCE.items():
+        alias_tokens = [crop_name.lower(), *reference.get("aliases", "").split()]
+        if any(token and token in message for token in alias_tokens):
+            matched_crop = crop_name
+            break
+    if not matched_crop:
+        return None
+    farmer_crops = set(_farmer_active_crops(farmer.get("id", "")))
+    primary = str(farmer.get("primary_crop", "") or "").strip()
+    if primary:
+        farmer_crops.add(primary)
+    if not farmer_crops:
+        return None
+    if matched_crop in farmer_crops:
+        return None
+    return {
+        "mentioned_crop": matched_crop,
+        "farmer_known_crops": sorted(farmer_crops),
+    }
+
+
 def _build_agent_context(farmer: dict[str, Any], target_msg: dict[str, Any]) -> dict[str, Any]:
     profile = _find_communication_profile(farmer["id"]) or {}
     requested_crop = _requested_crop_name(str(target_msg.get("text", "")), farmer["primary_crop"])
+    crop_mismatch = _detect_crop_mismatch(str(target_msg.get("text", "")), farmer)
+    if crop_mismatch:
+        requested_crop = farmer["primary_crop"]
     market = _latest_market_snapshot(farmer["primary_crop"])
     requested_market = _latest_market_snapshot(requested_crop)
     latest_advisory = next(
@@ -1318,6 +1389,7 @@ def _build_agent_context(farmer: dict[str, Any], target_msg: dict[str, Any]) -> 
             "whatsapp_opt_in": profile.get("whatsapp_opt_in", True),
         },
         "requested_crop": requested_crop,
+        "crop_mismatch": crop_mismatch,
         "ticket": {
             "id": target_msg["id"],
             "intent": target_msg.get("intent"),
@@ -1361,6 +1433,10 @@ def _call_openai_agent(context: dict[str, Any]) -> str:
         "Escalate if: disease/pest/crop-loss, payment or financial dispute, safety issue, "
         "the farmer explicitly asks for a human/manager, or you cannot answer confidently from the supplied context. "
         "Do NOT escalate simple advisory, price, input-request, or acknowledgment messages you can handle. "
+        "If context.crop_mismatch is non-null: the farmer mentioned a crop they do NOT grow. "
+        "First politely point out the mismatch, name the crop on record (farmer_known_crops), "
+        "and ask them to confirm before you give crop-specific advice or prices. "
+        "Do NOT answer with information about the mentioned_crop in this case. "
         "Reply: short WhatsApp style, 2-4 sentences, farmer's preferred language, polite, concise. "
         "Use only facts in the context. Do not promise dates/approvals/visits not in context. "
         "Return STRICT JSON only (no prose, no code fences) with shape: "
@@ -1445,6 +1521,42 @@ def _parse_agent_decision(text: str) -> dict[str, Any]:
         }
 
 
+def _crop_mismatch_clarify_reply(
+    farmer: dict[str, Any],
+    target_msg: dict[str, Any],
+    mismatch: dict[str, Any],
+    run: dict[str, Any],
+) -> dict[str, Any]:
+    known = ", ".join(mismatch.get("farmer_known_crops", []))
+    reply_text = (
+        f"I see your message mentions {mismatch['mentioned_crop']}, but our records show your crop is {known}. "
+        "Can you confirm which crop you mean? I want to share the right details and not act on the wrong crop."
+    )
+    reply_result = _post_outgoing_chat(farmer, reply_text, message=target_msg, status="pending", agent_generated=True)
+    _record_agent_task(
+        "agent_intake",
+        "Asked farmer to clarify crop mismatch",
+        entity_type="message",
+        entity_id=target_msg["id"],
+        farmer_id=farmer["id"],
+        message_id=target_msg["id"],
+        detail=f"mentioned={mismatch['mentioned_crop']}; on_record={known}",
+        run_id=run["id"] if run else None,
+    )
+    return {
+        **reply_result,
+        "message_id": target_msg["id"],
+        "reply_text": reply_text,
+        "escalate": False,
+        "escalation": None,
+        "category": "clarification",
+        "reason": "Crop mentioned does not match farmer's registered crops.",
+        "used_fallback": False,
+        "agent_model": _agent_model(),
+        "agent_provider": _communication_settings()["agent_provider"],
+    }
+
+
 def _fallback_agent_decision(farmer: dict[str, Any], target_msg: dict[str, Any]) -> dict[str, Any]:
     text = target_msg.get("text", "")
     escalate, category, reason = _heuristic_escalation(text)
@@ -1510,6 +1622,9 @@ def _handoff_to_human(
 
 
 def _handle_price_query_agentically(farmer: dict[str, Any], target_msg: dict[str, Any], run: dict[str, Any]) -> dict[str, Any]:
+    mismatch = _detect_crop_mismatch(str(target_msg.get("text", "")), farmer)
+    if mismatch:
+        return _crop_mismatch_clarify_reply(farmer, target_msg, mismatch, run)
     crop_name = _requested_crop_name(str(target_msg.get("text", "")), farmer["primary_crop"])
     market = _latest_market_snapshot(crop_name)
     if market:
@@ -1553,6 +1668,9 @@ def _handle_price_query_agentically(farmer: dict[str, Any], target_msg: dict[str
 
 
 def _handle_advisory_agentically(farmer: dict[str, Any], target_msg: dict[str, Any], run: dict[str, Any]) -> dict[str, Any]:
+    mismatch = _detect_crop_mismatch(str(target_msg.get("text", "")), farmer)
+    if mismatch:
+        return _crop_mismatch_clarify_reply(farmer, target_msg, mismatch, run)
     crop_name = _requested_crop_name(str(target_msg.get("text", "")), farmer["primary_crop"])
     season = _latest_farmer_season(farmer["id"], crop_name)
     crop_reference = CROP_REPLY_REFERENCE.get(crop_name) or {}
@@ -1621,14 +1739,43 @@ def _handle_input_request_agentically(farmer: dict[str, Any], target_msg: dict[s
             run=run,
         )
     if demand.get("status") == "needs_review" or int(demand.get("trust_score", 0)) < INPUT_AUTONOMY_TRUST_THRESHOLD:
+        gaps: list[str] = []
+        source_text_lower = str(demand.get("source_text") or target_msg.get("text") or "").lower()
+        rationale_items = [str(item) for item in demand.get("trust_rationale", []) if str(item).strip()]
+        for entry in rationale_items:
+            entry_lower = entry.lower()
+            if entry_lower.startswith("item match"):
+                if "0/50" in entry_lower or "15/50" in entry_lower:
+                    gaps.append("the requested input could not be matched to a specific catalog item")
+            elif entry_lower.startswith("qty parse"):
+                if "0/30" in entry_lower or "default" in entry_lower:
+                    gaps.append("the quantity was not stated in the message, so I cannot guess how much to send")
+                elif "20/30" in entry_lower:
+                    gaps.append("the quantity unit (bags, kg, packets) was not specified")
+            elif entry_lower.startswith("crop context"):
+                if (
+                    "10/20" in entry_lower
+                    and farmer.get("primary_crop")
+                    and farmer.get("primary_crop", "").lower() not in source_text_lower
+                    and not _crop_is_unambiguous(farmer)
+                ):
+                    gaps.append(f"the message did not mention {farmer.get('primary_crop')}, so the crop context is unclear")
+        if gaps:
+            why = "; ".join(gaps)
+            reply_text = (
+                f"I understood that you may need {demand['item_name']}, but I could not action it because {why}. "
+                "The FPO office will confirm with you before actioning the request."
+            )
+        else:
+            reply_text = (
+                f"I understood that you may need {demand['item_name']}, but the request details were not strong enough for me to action safely. "
+                "The FPO office will confirm with you before actioning the request."
+            )
         return _handoff_to_human(
             farmer,
             target_msg,
-            reason="Input request confidence is below the agent autonomy threshold.",
-            reply_text=(
-                f"I understood that you may need {demand['item_name']}, but I am not confident enough on the exact quantity. "
-                "The FPO office will confirm it before actioning the request."
-            ),
+            reason=f"Input trust {int(demand.get('trust_score', 0))} below threshold {INPUT_AUTONOMY_TRUST_THRESHOLD}.",
+            reply_text=reply_text,
             category=INPUT_REVIEW_ESCALATION_CATEGORY,
             run=run,
         )
@@ -1762,6 +1909,9 @@ def _handle_input_request_agentically(farmer: dict[str, Any], target_msg: dict[s
 
 
 def _handle_harvest_update_agentically(farmer: dict[str, Any], target_msg: dict[str, Any], run: dict[str, Any]) -> dict[str, Any]:
+    mismatch = _detect_crop_mismatch(str(target_msg.get("text", "")), farmer)
+    if mismatch:
+        return _crop_mismatch_clarify_reply(farmer, target_msg, mismatch, run)
     signal_id = str(target_msg.get("created_records", {}).get("harvest_signal_id", "")).strip()
     signal = next((row for row in DATASET["harvest_signals"] if row["id"] == signal_id), None)
     if not signal:
@@ -1773,11 +1923,42 @@ def _handle_harvest_update_agentically(farmer: dict[str, Any], target_msg: dict[
             run=run,
         )
     if signal.get("status") == "needs_review" or int(signal.get("confidence", 0)) < HARVEST_AUTONOMY_CONFIDENCE_THRESHOLD:
+        season = _latest_farmer_season(farmer["id"], farmer.get("primary_crop", ""))
+        gaps = _harvest_handoff_reasons(str(signal.get("source_text") or target_msg.get("text") or ""), farmer, season)
+        if gaps:
+            why = "; ".join(gaps)
+            reply_text = (
+                f"I noted your harvest update but could not auto-plan the pickup because {why}. "
+                "The FPO office will confirm the details with you and take it forward."
+            )
+        else:
+            reply_text = (
+                "I noted your harvest update but could not auto-plan the pickup because the readiness signals were not strong enough to act on safely. "
+                "The FPO office will confirm the details with you and take it forward."
+            )
         return _handoff_to_human(
             farmer,
             target_msg,
-            reason="Harvest readiness confidence is below the autonomy threshold.",
-            reply_text="I noted your harvest update, but I need the FPO office to confirm the pickup details before I proceed.",
+            reason=f"Harvest readiness confidence {int(signal.get('confidence', 0))} below threshold {HARVEST_AUTONOMY_CONFIDENCE_THRESHOLD}.",
+            reply_text=reply_text,
+            run=run,
+        )
+
+    season = _latest_farmer_season(farmer["id"], signal["crop"])
+    days_to_harvest = _days_until((season or {}).get("expected_harvest"))
+    if days_to_harvest is not None and days_to_harvest > HARVEST_OUTREACH_WINDOW_DAYS:
+        expected = (season or {}).get("expected_harvest")
+        signal["status"] = "needs_review"
+        return _handoff_to_human(
+            farmer,
+            target_msg,
+            reason=f"Reported readiness conflicts with season record (expected harvest {expected}, {days_to_harvest} days away).",
+            reply_text=(
+                f"I noted your update, but our records show {signal['crop']} harvest is expected around {expected} "
+                f"({days_to_harvest} days away). I do not want to plan an early pickup that could damage produce, "
+                "so the FPO field officer will confirm readiness with you before we proceed."
+            ),
+            owner="Field Officer",
             run=run,
         )
 
@@ -1901,6 +2082,9 @@ def _handle_harvest_update_agentically(farmer: dict[str, Any], target_msg: dict[
 
 
 def _handle_multi_intent_agentically(farmer: dict[str, Any], target_msg: dict[str, Any], run: dict[str, Any]) -> dict[str, Any]:
+    mismatch = _detect_crop_mismatch(str(target_msg.get("text", "")), farmer)
+    if mismatch:
+        return _crop_mismatch_clarify_reply(farmer, target_msg, mismatch, run)
     intents = _message_intents(target_msg)
     ordered_handlers = [
         ("input_request", _handle_input_request_agentically),
@@ -1935,7 +2119,19 @@ def _handle_multi_intent_agentically(farmer: dict[str, Any], target_msg: dict[st
 def _handle_general_query_agentically(farmer: dict[str, Any], target_msg: dict[str, Any], run: dict[str, Any]) -> dict[str, Any]:
     context = _build_agent_context(farmer, target_msg)
     used_fallback = False
-    if _agent_api_key():
+    mismatch = context.get("crop_mismatch")
+    if mismatch:
+        known = ", ".join(mismatch.get("farmer_known_crops", []))
+        decision = {
+            "reply": (
+                f"I see your message mentions {mismatch['mentioned_crop']}, but our records show your crop is {known}. "
+                "Can you confirm which crop you mean? I want to share the right details and not act on the wrong crop."
+            ),
+            "escalate": False,
+            "category": "none",
+            "reason": "Crop mentioned does not match farmer's registered crops.",
+        }
+    elif _agent_api_key():
         try:
             decision = _call_openai_agent(context)
             _set_agent_last_error(None)

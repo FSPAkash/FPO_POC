@@ -1917,7 +1917,7 @@ button.jira-card {
 
 .workboard-list {
   min-height: 0;
-  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   align-content: start;
   overflow: auto;
   padding-right: 4px;
@@ -1927,20 +1927,20 @@ button.jira-card {
 
 .workboard-item {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 12px;
-  padding: 12px;
-  border-radius: var(--radius-md);
-  background: rgba(255, 255, 255, 0.62);
-  border: 1px solid rgba(203, 230, 200, 0.24);
-  min-height: 148px;
-  align-content: start;
+  grid-template-rows: 1fr auto;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(123, 141, 124, 0.16);
+  background: #ffffff;
+  min-height: 132px;
 }
 
 .workboard-item-copy {
   min-width: 0;
   display: grid;
   gap: 6px;
+  align-content: start;
 }
 
 .workboard-item-topline {
@@ -1979,7 +1979,23 @@ button.jira-card {
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  margin-top: auto;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding-top: 8px;
+  border-top: 1px solid rgba(123, 141, 124, 0.14);
+  margin-top: 0;
+}
+
+.workboard-item[data-has-action="yes"] .workboard-item-action .btn-small,
+.workboard-item[data-has-action="yes"] .workboard-item-action .btn-primary,
+.workboard-item[data-has-action="yes"] .workboard-item-action .btn-ghost {
+  flex: 0 0 auto;
+}
+
+.workboard-item-action.is-inline {
+  margin-top: 0;
+  padding-top: 8px;
+  border-top: 1px solid rgba(123, 141, 124, 0.14);
 }
 
 .workboard-item-actions {
@@ -4792,7 +4808,7 @@ button.jira-card {
 
 .workboard-list {
   min-height: 0;
-  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   align-content: start;
   overflow: auto;
   padding-right: 4px;
@@ -4802,21 +4818,20 @@ button.jira-card {
 
 .workboard-item {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-rows: 1fr auto;
   gap: 10px;
-  padding: 11px 12px;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.92);
-  border: 1px solid rgba(123, 141, 124, 0.12);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78), 0 10px 20px rgba(25, 44, 30, 0.04);
-  min-height: 148px;
-  align-content: start;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(123, 141, 124, 0.16);
+  background: #ffffff;
+  min-height: 132px;
 }
 
 .workboard-item-copy {
   min-width: 0;
   display: grid;
-  gap: 5px;
+  gap: 6px;
+  align-content: start;
 }
 
 .workboard-item-topline {
@@ -4853,6 +4868,29 @@ button.jira-card {
 
 .workboard-item-detail {
   color: rgba(45, 51, 45, 0.74);
+}
+
+.workboard-item-action {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding-top: 8px;
+  border-top: 1px solid rgba(123, 141, 124, 0.14);
+  margin-top: 0;
+}
+
+.workboard-item[data-has-action="yes"] .workboard-item-action .btn-small,
+.workboard-item[data-has-action="yes"] .workboard-item-action .btn-primary,
+.workboard-item[data-has-action="yes"] .workboard-item-action .btn-ghost {
+  flex: 0 0 auto;
+}
+
+.workboard-item-action.is-inline {
+  margin-top: 0;
+  padding-top: 8px;
+  border-top: 1px solid rgba(123, 141, 124, 0.14);
 }
 
 .queue-fresh-tag {
@@ -5374,6 +5412,7 @@ button.jira-card {
 
 .selectable-table .btn-small,
 .workboard-item .btn-small,
+.tracker-actions .btn-small,
 .bulk-bar .btn-small {
   min-height: 30px;
   padding: 6px 10px;
@@ -5833,7 +5872,13 @@ button.jira-card {
 .app-root[data-section="market"] .market-split-detail {
   background: #ffffff !important;
   background-image: none !important;
-  overflow: hidden !important;
+  overflow: visible !important;
+}
+
+.app-root[data-section="operations"] .workboard-card,
+.app-root[data-section="market"] .workboard-card {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
 }
 
 .app-root[data-section="market"] .market-split-list,
@@ -9228,4 +9273,238 @@ a:hover {
 .floating-phone-frame {
   flex-shrink: 1;
   min-height: 0;
+}
+
+.section-sticky-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+.section-sticky-head .subtab-nav {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.section-sticky-head-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+.section-sticky-actions {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 6px;
+}
+
+.ops-blocker-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(255, 167, 38, 0.10);
+  border: 1px solid rgba(255, 167, 38, 0.28);
+  font-size: 13px;
+  color: rgba(74, 56, 18, 0.92);
+}
+
+.ops-blocker-strip strong {
+  font-weight: 600;
+}
+
+.filter-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 0;
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(123, 141, 124, 0.20);
+  background: #ffffff;
+  font-size: 12px;
+  color: #2d332d;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.filter-chip:hover {
+  border-color: rgba(33, 110, 57, 0.45);
+}
+
+.filter-chip.active {
+  background: rgba(33, 110, 57, 0.12);
+  border-color: rgba(33, 110, 57, 0.55);
+  color: #1f4d2e;
+}
+
+.filter-chip.tone-high {
+  border-color: rgba(239, 83, 80, 0.32);
+}
+
+.filter-chip.tone-high.active {
+  background: rgba(239, 83, 80, 0.12);
+  color: #7c1f1c;
+}
+
+.selectable-table td .hint,
+.data-table td .hint {
+  font-size: 11px;
+  color: rgba(74, 82, 74, 0.6);
+  font-style: italic;
+}
+
+/* ============================================================================
+   MARKET MATCHING — unified surface pass.
+   Consolidates the two earlier systems (22px+18px and 28px+16px). One radius
+   on the outer cards, one on the inner cells, one type scale, footer-anchored
+   action so the primary button isn't floating.
+   ============================================================================ */
+.app-root[data-section="market"] .match-filter-bar,
+.app-root[data-section="market"] .market-split-list,
+.app-root[data-section="market"] .market-split-detail {
+  border-radius: 16px !important;
+  border: 1px solid var(--hairline) !important;
+  background: var(--color-snow) !important;
+  box-shadow: none !important;
+}
+
+.app-root[data-section="market"] .match-filter-bar {
+  padding: 10px 12px;
+  gap: 10px;
+}
+
+.app-root[data-section="market"] .market-split { gap: 12px; }
+
+.app-root[data-section="market"] .market-split-head {
+  padding: 10px 14px;
+  background: var(--color-fog);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.app-root[data-section="market"] .market-split-head > div:first-child > strong,
+.app-root[data-section="market"] .selection-pane-head > div:first-child > strong {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--color-ink);
+}
+
+.app-root[data-section="market"] .selection-pane-note {
+  font-size: 12px;
+  color: var(--color-graphite);
+  display: block;
+  margin-top: 2px;
+}
+
+.app-root[data-section="market"] .market-match-row {
+  padding: 10px 14px;
+}
+
+.app-root[data-section="market"] .match-row-top { font-size: 13px; }
+.app-root[data-section="market"] .match-row-mid,
+.app-root[data-section="market"] .match-row-bot { font-size: 12px; }
+
+.app-root[data-section="market"] .market-split-detail {
+  padding: 0;
+  gap: 0;
+  position: sticky;
+  top: 116px;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-root[data-section="market"] .selection-pane-head-detail {
+  padding: 10px 14px;
+  background: var(--color-fog);
+  border-bottom: 1px solid var(--hairline);
+  border-radius: 0 !important;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.app-root[data-section="market"] .match-detail {
+  padding: 0;
+  gap: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-root[data-section="market"] .match-detail-head {
+  padding: 14px 14px 10px;
+}
+
+.app-root[data-section="market"] .match-detail-head h3 {
+  font-size: 16px !important;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+.app-root[data-section="market"] .match-detail-sub {
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.app-root[data-section="market"] .match-detail > .score-header-label {
+  padding: 0 14px 12px;
+}
+
+.app-root[data-section="market"] .match-detail-grid {
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+  font-size: 12px;
+  padding: 0 14px 12px;
+}
+
+.app-root[data-section="market"] .match-detail-grid > div {
+  padding: 8px 10px;
+  border-radius: 10px !important;
+  background: var(--color-fog);
+  border: 1px solid var(--hairline);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.app-root[data-section="market"] .match-detail-grid .hint { font-size: 11px; }
+.app-root[data-section="market"] .match-detail-grid strong { font-size: 13px; }
+
+.app-root[data-section="market"] .match-detail-actions {
+  margin-top: auto;
+  padding: 12px 14px;
+  border-top: 1px solid var(--hairline);
+  background: var(--color-fog);
+  border-radius: 0 0 16px 16px;
+}
+
+.app-root[data-section="market"] .match-detail-actions .btn-primary {
+  height: 34px;
+  padding: 0 14px;
+  font-size: 13px;
+}
+
+.app-root[data-section="market"] .selection-active-pill {
+  font-size: 11px;
+  padding: 2px 8px;
 }

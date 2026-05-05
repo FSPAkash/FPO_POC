@@ -1772,7 +1772,7 @@ function WorkboardCard({ eyebrow, title, subtitle, count, action, tone = "normal
 
 function WorkboardItem({ title, meta, detail, chips = [], action }) {
   return (
-    <article className="workboard-item">
+    <article className="workboard-item" data-has-action={action ? "yes" : "no"}>
       <div className="workboard-item-copy">
         <div className="workboard-item-topline">
           <strong>{title}</strong>
@@ -2560,6 +2560,7 @@ function OperationsSection({ sectionData, handlers }) {
   const [tab, setTab] = useState("tracker");
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [workboardCollapsed, setWorkboardCollapsed] = useState(false);
+  const [inventorySubtab, setInventorySubtab] = useState("snapshot");
   const [drawer, setDrawer] = useState("");
   const [trackerQuery, setTrackerQuery] = useState("");
   const [trackerActiveId, setTrackerActiveId] = useState(null);
@@ -2606,7 +2607,7 @@ function OperationsSection({ sectionData, handlers }) {
 
   const reviewSelection = useSelection(reviewQueueDisplay);
   const prSelection = useSelection(openPurchaseRequests);
-  const settlementSelection = useSelection(payableSettlementRows);
+  const settlementSelection = useSelection(pendingSettlementRows);
 
   const tabs = [
     { id: "tracker", label: "Tracker", count: reviewQueue.length + openPurchaseRequests.length + pendingSettlementRows.length + orderAttentionRows.length, tone: (reviewQueue.length || openPurchaseRequests.length || pendingSettlementRows.length || orderAttentionRows.length) ? "high" : "neutral", hint: "Press 1" },
@@ -2634,7 +2635,9 @@ function OperationsSection({ sectionData, handlers }) {
     list.push({ id: "act-grn", group: "Action", label: "Create Goods Receipt", run: () => setDrawer("grn") });
     list.push({ id: "act-issue", group: "Action", label: "Issue Inputs", run: () => setDrawer("issue") });
     list.push({ id: "act-coll", group: "Action", label: "Record Collection", run: () => setDrawer("collection") });
-    list.push({ id: "act-gen", group: "Action", label: "Generate Settlements", run: () => handlers.onGenerateSettlements({}) });
+    if (!isAgenticMode(handlers)) {
+      list.push({ id: "act-gen", group: "Action", label: "Generate Settlements", run: () => handlers.onGenerateSettlements({}) });
+    }
     openPurchaseRequests.slice(0, 20).forEach((pr) => {
       list.push({ id: `pr-${pr.id}`, group: "Purchase Request", label: `Approve ${pr.id}`, hint: `${pr.item_name} · ${pr.supplier_name}`, run: () => handlers.onApprovePurchaseRequest(pr.id) });
     });
@@ -3059,7 +3062,9 @@ function OperationsSection({ sectionData, handlers }) {
                 { label: pendingSettlementRows.length ? `${number(pendingSettlementRows.length)} settlements still need release` : "No payout backlog", tone: pendingSettlementRows.length ? "high" : "normal" },
                 { label: pendingApprovals.length ? `${number(pendingApprovals.length)} approval items can still block cash` : "No approval blocker for payouts", tone: pendingApprovals.length ? "medium" : "normal" }
               ],
-              primaryAction: <button type="button" className="btn-primary" onClick={() => handlers.onGenerateSettlements({})} disabled={!handlers.canAction("generate_settlements")}>Generate Settlements</button>
+              primaryAction: isAgenticMode(handlers)
+                ? null
+                : <button type="button" className="btn-primary" onClick={() => handlers.onGenerateSettlements({})} disabled={!handlers.canAction("generate_settlements")}>Generate Settlements</button>
             };
 
   return (
@@ -3068,7 +3073,11 @@ function OperationsSection({ sectionData, handlers }) {
       <div className="section-sticky-head glass-light">
         <SubTabNav tabs={tabs} active={tab} onChange={setTab} />
         <div className="section-sticky-actions">
-          <button type="button" className="btn-ghost btn-small" onClick={() => setWorkboardCollapsed((v) => !v)} title="Toggle board">{workboardCollapsed ? "Show" : "Hide"} board</button>
+          {tab === "demands" && reviewQueue.length ? (
+            <button type="button" className="btn-ghost btn-small" onClick={() => setWorkboardCollapsed((v) => !v)} title="Toggle board">
+              {workboardCollapsed ? "Show review board" : "Hide review board"}
+            </button>
+          ) : null}
         </div>
       </div>
       <SectionLead
@@ -3083,7 +3092,7 @@ function OperationsSection({ sectionData, handlers }) {
             <button type="button" className="btn-ghost" onClick={() => setPaletteOpen(true)}>Commands</button>
           </>
         }
-        note={hasUrgent ? "New line items stay pinned at the top of the lane until they are acted on. Use 1-6 to jump between fulfillment stages." : "Queues are calm right now. The overview stays above and the reference tables remain available below."}
+        note={tab === "tracker" ? null : (hasUrgent ? "Use 1-6 to jump between fulfillment stages." : "Queues are calm right now.")}
       />
       {tab === "tracker" ? (
         <div className="stack">
@@ -3111,7 +3120,7 @@ function OperationsSection({ sectionData, handlers }) {
       ) : null}
       {tab === "demands" ? (
         <div className="stack">
-          {!workboardCollapsed ? <div className="workboard-grid">
+          {!workboardCollapsed && reviewQueue.length ? <div className="workboard-grid">
             <WorkboardCard eyebrow="Needs Review" title="Auto-captured asks waiting on office" subtitle="Low-confidence line items are kept separate so they do not disappear into the main feed." count={reviewQueue.length} tone={reviewQueue.length ? "high" : "normal"}>
               <div className="workboard-list">
                 {reviewQueue.length ? recentRows(reviewQueueDisplay, ["request_date"], 4).map((row) => (
@@ -3135,45 +3144,6 @@ function OperationsSection({ sectionData, handlers }) {
                 )) : <div className="queue-empty">Nothing is waiting for manual review.</div>}
               </div>
             </WorkboardCard>
-
-            {isAgenticMode(handlers) ? (
-              <WorkboardCard
-                eyebrow="Agent In Progress"
-                title="Fulfillment Agent will aggregate these next"
-                subtitle="High-confidence captured demands are auto-grouped into a PR on the next agent cycle. Nothing human to do here."
-                count={capturedDemands.length}
-                tone="neutral"
-              >
-                <div className="workboard-list">
-                  {recentDemandSignals.filter((row) => row.status === "captured").length ? recentDemandSignals.filter((row) => row.status === "captured").slice(0, 4).map((row) => (
-                    <WorkboardItem
-                      key={row.id}
-                      title={`${row.item_name} · ${number(row.requested_qty || 0)} qty`}
-                      meta={`${row.fpo_id} · ${row.crop} · ${row.request_date || "No date"}`}
-                      detail="Queued for Fulfillment Agent. No human action needed."
-                      chips={[<span className="badge badge-info" key="auto">Auto</span>]}
-                    />
-                  )) : <div className="queue-empty">Queue is clear — agents handled everything in flight.</div>}
-                </div>
-              </WorkboardCard>
-            ) : (
-              <WorkboardCard eyebrow="Ready Next" title="Captured demands ready to aggregate" subtitle="These rows are clear enough to move forward and should be grouped into purchase requests." count={capturedDemands.length} tone="medium" action={<button type="button" className="btn-primary btn-small" onClick={() => setDrawer("aggregate")} disabled={!handlers.canAction("aggregate_demands") || !capturedDemands.length}>Aggregate</button>}>
-                <div className="workboard-list">
-                  {recentDemandSignals.filter((row) => row.status === "captured").length ? recentDemandSignals.filter((row) => row.status === "captured").map((row) => (
-                    <WorkboardItem
-                      key={row.id}
-                      title={`${row.item_name} · ${number(row.requested_qty || 0)} qty`}
-                      meta={`${row.fpo_id} · ${row.crop} · ${row.request_date || "No date"}`}
-                      detail={`${row.farmer_id}${row.village ? ` · ${row.village}` : ""}`}
-                      chips={[
-                        <QueueFreshTag key="fresh" />,
-                        row.source === "farmer_chat" ? <span className="badge badge-info" key="agent">Agent</span> : null
-                      ].filter(Boolean)}
-                    />
-                  )) : <div className="queue-empty">No captured rows are waiting to be grouped right now.</div>}
-                </div>
-              </WorkboardCard>
-            )}
 
           </div> : null}
 
@@ -3232,194 +3202,171 @@ function OperationsSection({ sectionData, handlers }) {
       ) : null}
       {tab === "procurement" ? (
         <div className="stack">
-          {!workboardCollapsed ? (
-            <div className="queue-board">
-              <QueueBoardColumn
-                title="Needs approval"
-                count={openPurchaseRequests.length}
-                tone={openPurchaseRequests.length ? "high" : "normal"}
-                action={<button type="button" className="btn-primary btn-small" onClick={() => setDrawer("pr")} disabled={!handlers.canAction("create_pr")}>Create PR</button>}
-              >
-                <BulkBar
-                  count={prSelection.count}
-                  onClear={prSelection.clear}
-                  actions={[
-                    { label: `Approve ${prSelection.count}`, tone: "primary", disabled: !handlers.canAction("approve_pr"), onClick: async () => {
-                      await handlers.onBulkApprovePurchaseRequests(prSelection.ids);
-                      prSelection.clear();
-                    }}
-                  ]}
-                />
-                <div className="queue-action-list">
-                  {openPurchaseRequests.length ? openPurchaseRequests.map((row) => (
-                    <QueueActionRow
-                      key={row.id}
-                      id={row.id}
-                      selected={prSelection.selected.has(row.id)}
-                      onSelect={() => prSelection.toggle(row.id)}
-                      title={row.item_name}
-                      meta={joinParts([row.id, `${number(row.total_qty)} qty`, row.supplier_name])}
-                      detail={`${Array.isArray(row.input_demand_ids) ? row.input_demand_ids.length : 0} linked demand lines`}
-                      chips={[<span className="queue-inline-stat" key="linked">Linked {Array.isArray(row.input_demand_ids) ? row.input_demand_ids.length : 0}</span>]}
-                      action={row.approval_status !== "approved" ? <InlineConfirmAction label="Approve" disabled={!handlers.canAction("approve_pr")} onConfirm={() => handlers.onApprovePurchaseRequest(row.id)} /> : <span className="queue-inline-done">Done</span>}
-                    />
-                  )) : <div className="queue-empty">No purchase requests are waiting approval.</div>}
-                </div>
-              </QueueBoardColumn>
+          <TableCard title={`Open Purchase Requests — ${openPurchaseRequests.length}`}>
+            <BulkBar
+              count={prSelection.count}
+              onClear={prSelection.clear}
+              actions={[
+                { label: `Approve ${prSelection.count}`, tone: "primary", disabled: !handlers.canAction("approve_pr"), onClick: async () => {
+                  await handlers.onBulkApprovePurchaseRequests(prSelection.ids);
+                  prSelection.clear();
+                }}
+              ]}
+            />
+            <SelectableTable
+              selection={prSelection}
+              idKey="id"
+              columns={[
+                { key: "id", label: "PR" },
+                { key: "item_name", label: "Item" },
+                { key: "total_qty", label: "Qty", render: (v) => number(v) },
+                { key: "supplier_name", label: "Supplier" },
+                { key: "input_demand_ids", label: "Linked", render: (v) => Array.isArray(v) ? v.length : 0 },
+                { key: "approval_status", label: "Status", render: (v) => <SeverityBadge value={v} /> },
+                {
+                  key: "id",
+                  label: "Action",
+                  render: (_v, row) =>
+                    row.approval_status !== "approved" ? (
+                      <InlineConfirmAction label="Approve" disabled={!handlers.canAction("approve_pr")} onConfirm={() => handlers.onApprovePurchaseRequest(row.id)} />
+                    ) : <span className="hint">Approved</span>
+                }
+              ]}
+              rows={openPurchaseRequests}
+            />
+          </TableCard>
 
-              <QueueBoardColumn
-                title="Ordered"
-                count={inFlightPurchaseOrders.length}
-                tone={inFlightPurchaseOrders.length ? "medium" : "normal"}
-              >
-                <div className="queue-action-list">
-                  {inFlightPurchaseOrders.length ? inFlightPurchaseOrders.map((row) => (
-                    <QueueActionRow
-                      key={row.id}
-                      title={row.item_name}
-                      meta={joinParts([row.id, `${number(row.qty_ordered)} qty`, row.order_date || "No date"])}
-                      detail={joinParts([row.pr_id ? `PR ${row.pr_id}` : null, row.supplier_id ? `Supplier ${row.supplier_id}` : null])}
-                      chips={[<SeverityBadge key="status" value={row.delivery_status} />]}
-                    />
-                  )) : <div className="queue-empty">No purchase orders are in flight.</div>}
-                </div>
-              </QueueBoardColumn>
-            </div>
-          ) : null}
-          <TableCard title="PR history" collapsible><DataTable columns={[{ key: "id", label: "PR ID" }, { key: "item_name", label: "Item" }, { key: "total_qty", label: "Qty" }, { key: "supplier_name", label: "Supplier" }, { key: "approval_status", label: "Status", render: (value) => <SeverityBadge value={value} /> }]} rows={purchaseRequests} /></TableCard>
-          <TableCard title="Receipt history" collapsible><DataTable columns={[{ key: "id", label: "GRN" }, { key: "po_id", label: "PO" }, { key: "item_name", label: "Item" }, { key: "qty_received", label: "Received" }, { key: "receipt_date", label: "Date" }]} rows={goodsReceipts} /></TableCard>
+          <TableCard title={`In-flight Purchase Orders — ${inFlightPurchaseOrders.length}`} collapsible defaultOpen={inFlightPurchaseOrders.length > 0}>
+            <DataTable
+              columns={[
+                { key: "id", label: "PO" },
+                { key: "pr_id", label: "PR" },
+                { key: "item_name", label: "Item" },
+                { key: "qty_ordered", label: "Qty", render: (v) => number(v) },
+                { key: "supplier_id", label: "Supplier" },
+                { key: "order_date", label: "Date" },
+                { key: "delivery_status", label: "Delivery", render: (v) => <SeverityBadge value={v} /> }
+              ]}
+              rows={inFlightPurchaseOrders}
+            />
+          </TableCard>
+
+          <TableCard title="Procurement history" collapsible defaultOpen={false}>
+            <DataTable
+              enableSearch
+              columns={[
+                { key: "id", label: "PR" },
+                { key: "item_name", label: "Item" },
+                { key: "total_qty", label: "Qty" },
+                { key: "supplier_name", label: "Supplier" },
+                { key: "approval_status", label: "Status", render: (v) => <SeverityBadge value={v} /> }
+              ]}
+              rows={purchaseRequests}
+            />
+            <DataTable
+              columns={[
+                { key: "id", label: "GRN" },
+                { key: "po_id", label: "PO" },
+                { key: "item_name", label: "Item" },
+                { key: "qty_received", label: "Received" },
+                { key: "receipt_date", label: "Date" }
+              ]}
+              rows={goodsReceipts}
+            />
+          </TableCard>
         </div>
       ) : null}
       {tab === "inventory" ? (
         <div className="stack">
-          {!workboardCollapsed ? <div className="workboard-grid">
-            <WorkboardCard eyebrow="Watchlist" title="Low-stock items" subtitle="Stock risk stays visible before it becomes a farmer-facing delay." count={lowStockRows.length} tone={lowStockRows.length ? "high" : "normal"} action={<button type="button" className="btn-primary btn-small" onClick={() => setDrawer("issue")} disabled={!handlers.canAction("issue_inputs")}>Issue Inputs</button>}>
-              <div className="workboard-list">
-                {lowStockRows.length ? recentRows(lowStockRows, [], 4).map((row) => (
-                  <WorkboardItem
-                    key={`${row.fpo_id}-${row.item_name}`}
-                    title={row.item_name}
-                    meta={`${row.fpo_id} · ${number(row.current_stock || 0)} left`}
-                    detail="Inventory level is below the expected comfort band."
-                    chips={[<SeverityBadge key="status" value={row.stock_status} />]}
-                  />
-                )) : <div className="queue-empty">No low-stock alerts right now.</div>}
-              </div>
-            </WorkboardCard>
-
-            <WorkboardCard eyebrow="Recent Moves" title="Latest stock ledger entries" subtitle="Newest inventory movements are surfaced separately from the full ledger." count={inventoryTransactions.length}>
-              <div className="workboard-list">
-                {recentInventoryMoves.length ? recentInventoryMoves.map((row) => (
-                  <WorkboardItem
-                    key={row.id}
-                    title={`${row.item_name} · ${number(row.qty || 0)}`}
-                    meta={`${titleCase(row.txn_type)} · ${row.txn_date || "No date"}`}
-                    detail={`Reference ${row.reference_id}${row.fpo_id ? ` · ${row.fpo_id}` : ""}`}
-                    chips={[<QueueFreshTag key="fresh" />]}
-                  />
-                )) : <div className="queue-empty">No recent ledger movement yet.</div>}
-              </div>
-            </WorkboardCard>
-
-            <WorkboardCard eyebrow="Issues" title="Recently issued input lines" subtitle="Fresh issues remain visible even after the stock count changes." count={inputIssues.length}>
-              <div className="workboard-list">
-                {recentInputIssues.length ? recentInputIssues.map((row) => (
-                  <WorkboardItem
-                    key={row.id}
-                    title={`${row.item_name || row.item_id || "Input"} issued`}
-                    meta={`${row.farmer_id || "Unknown farmer"} · ${number(row.qty_issued || 0)} qty`}
-                    detail={`${row.issue_date || "No date"}${row.fpo_id ? ` · ${row.fpo_id}` : ""}`}
-                    chips={[row.created_by_agent ? <span className="badge badge-info" key="agent">Agent</span> : <QueueFreshTag key="fresh" />]}
-                  />
-                )) : <div className="queue-empty">No input issues have been recorded yet.</div>}
-              </div>
-            </WorkboardCard>
-          </div> : null}
-
-          <TableCard title="Inventory Snapshot" collapsible><DataTable columns={[{ key: "fpo_id", label: "FPO" }, { key: "item_name", label: "Item" }, { key: "current_stock", label: "Stock" }, { key: "stock_status", label: "Status", render: (value) => <SeverityBadge value={value} /> }]} rows={inventory} /></TableCard>
-          <TableCard title="Inventory Ledger" collapsible><DataTable columns={[{ key: "txn_date", label: "Date" }, { key: "item_name", label: "Item" }, { key: "txn_type", label: "Type" }, { key: "qty", label: "Qty" }, { key: "reference_id", label: "Reference" }]} rows={inventoryTransactions} /></TableCard>
+          <SubTabNav
+            tabs={[
+              { id: "snapshot", label: "Snapshot", count: inventory.length, tone: lowStockRows.length ? "high" : "neutral" },
+              { id: "ledger", label: "Ledger", count: inventoryTransactions.length },
+              { id: "issues", label: "Issues", count: inputIssues.length }
+            ]}
+            active={inventorySubtab}
+            onChange={setInventorySubtab}
+          />
+          {inventorySubtab === "snapshot" ? (
+            <TableCard title="Inventory Snapshot">
+              <DataTable
+                enableSearch
+                enableFilters
+                columns={[
+                  { key: "fpo_id", label: "FPO" },
+                  { key: "item_name", label: "Item" },
+                  { key: "current_stock", label: "Stock", render: (v) => number(v) },
+                  { key: "stock_status", label: "Status", render: (v) => <SeverityBadge value={v} /> }
+                ]}
+                rows={inventory}
+              />
+            </TableCard>
+          ) : null}
+          {inventorySubtab === "ledger" ? (
+            <TableCard title="Inventory Ledger">
+              <DataTable
+                enableSearch
+                enableFilters
+                columns={[
+                  { key: "txn_date", label: "Date" },
+                  { key: "item_name", label: "Item" },
+                  { key: "txn_type", label: "Type" },
+                  { key: "qty", label: "Qty" },
+                  { key: "reference_id", label: "Reference" },
+                  { key: "fpo_id", label: "FPO" }
+                ]}
+                rows={inventoryTransactions}
+              />
+            </TableCard>
+          ) : null}
+          {inventorySubtab === "issues" ? (
+            <TableCard title="Input Issues">
+              <DataTable
+                enableSearch
+                columns={[
+                  { key: "id", label: "Issue" },
+                  { key: "farmer_id", label: "Farmer" },
+                  { key: "item_name", label: "Item" },
+                  { key: "qty_issued", label: "Qty" },
+                  { key: "issue_date", label: "Date" },
+                  { key: "fpo_id", label: "FPO" }
+                ]}
+                rows={inputIssuesDisplay}
+              />
+            </TableCard>
+          ) : null}
         </div>
       ) : null}
       {tab === "collections" ? (
         <div className="stack">
-          {!workboardCollapsed ? <div className="workboard-grid">
-            <WorkboardCard eyebrow="Fresh Intake" title="Newest produce collections" subtitle="New harvest intake is surfaced separately from the full collection history." count={collections.length} tone="medium" action={<button type="button" className="btn-primary btn-small" onClick={() => setDrawer("collection")} disabled={!handlers.canAction("record_collection")}>Record Collection</button>}>
-              <div className="workboard-list">
-                {recentCollections.length ? recentCollections.map((row) => (
-                  <WorkboardItem
-                    key={row.id}
-                    title={`${row.farmer_name} · ${row.crop}`}
-                    meta={`${number(row.quantity_qtl || 0, 1)} qtl · Grade ${row.grade} · ${row.date || "No date"}`}
-                    detail={`${row.collection_center || "No center"}${row.moisture_pct != null ? ` · ${number(row.moisture_pct, 1)}% moisture` : ""}`}
-                    chips={[
-                      <QueueFreshTag key="fresh" />,
-                      row.created_by_agent ? <span className="badge badge-info" key="agent">Agent</span> : null,
-                      <SeverityBadge key="status" value={row.status} />
-                    ].filter(Boolean)}
-                  />
-                )) : <div className="queue-empty">No recent produce intake yet.</div>}
-              </div>
-            </WorkboardCard>
-
-            <WorkboardCard eyebrow="Not Allocated" title="Collections still waiting for market linkage" subtitle="Unallocated harvest stays visible so market action can happen before produce goes stale." count={unallocatedCollections.length} tone={unallocatedCollections.length ? "high" : "normal"}>
-              <div className="workboard-list">
-                {unallocatedCollections.length ? recentRows(unallocatedCollections, ["date"], 4).map((row) => (
-                  <WorkboardItem
-                    key={row.id}
-                    title={`${row.crop} from ${row.farmer_name}`}
-                    meta={`${number(row.quantity_qtl || 0, 1)} qtl · ${row.date || "No date"}`}
-                    detail={`Collection ${row.id}${row.grade ? ` · Grade ${row.grade}` : ""}`}
-                    chips={[<SeverityBadge key="status" value={row.status} />]}
-                  />
-                )) : <div className="queue-empty">Everything recent is already linked to market demand.</div>}
-              </div>
-            </WorkboardCard>
-
-          </div> : null}
-
-          <TableCard title="Produce Collections" collapsible><DataTable columns={[{ key: "id", label: "Collection" }, { key: "farmer_name", label: "Farmer" }, { key: "crop", label: "Crop" }, { key: "quantity_qtl", label: "Qty (qtl)" }, { key: "grade", label: "Grade" }, { key: "status", label: "Status", render: (value) => <SeverityBadge value={value} /> }]} rows={collections} /></TableCard>
+          <TableCard title={`Produce Collections — ${unallocatedCollections.length} unallocated`}>
+            <DataTable
+              enableSearch
+              enableFilters
+              columns={[
+                { key: "id", label: "Collection" },
+                { key: "farmer_name", label: "Farmer" },
+                { key: "crop", label: "Crop" },
+                { key: "quantity_qtl", label: "Qty (qtl)", render: (v) => number(v, 1) },
+                { key: "grade", label: "Grade" },
+                { key: "moisture_pct", label: "Moisture %", render: (v) => v == null ? "-" : number(v, 1) },
+                { key: "collection_center", label: "Center" },
+                { key: "date", label: "Date" },
+                { key: "status", label: "Status", render: (v) => <SeverityBadge value={v} /> }
+              ]}
+              rows={collections}
+            />
+          </TableCard>
         </div>
       ) : null}
       {tab === "settlements" ? (
         <div className="stack">
-          {!workboardCollapsed ? <div className="workboard-grid">
-            <WorkboardCard eyebrow="Pending Payouts" title="Farmer settlements waiting release" subtitle="The payout queue is surfaced first so new release obligations are obvious." count={pendingSettlementRows.length} tone={pendingSettlementRows.length ? "high" : "normal"} action={<button type="button" className="btn-primary btn-small" onClick={() => handlers.onGenerateSettlements({})} disabled={!handlers.canAction("generate_settlements")}>Generate</button>}>
-              <div className="workboard-list">
-                {pendingSettlementRows.length ? recentRows(pendingSettlementRows, [], 4).map((row) => (
-                  <WorkboardItem
-                    key={row.id}
-                    title={`${row.id} · ${currency(row.net_amount)}`}
-                    meta={`${row.farmer_id} · ${row.crop}`}
-                    detail={`Collection ${row.collection_id}${row.sales_order_id ? ` · Sales order ${row.sales_order_id}` : ""}`}
-                    chips={[
-                      <QueueFreshTag key="fresh" />,
-                      <SeverityBadge key="status" value={row.payment_status} />
-                    ]}
-                    action={row.payment_status !== "paid" ? <InlineConfirmAction label="Mark Paid" disabled={!handlers.canAction("release_settlement") || !canMarkSettlementPaid(row, marketSalesOrders)} onConfirm={() => handlers.onMarkSettlementPaid(row.id)} /> : null}
-                  />
-                )) : <div className="queue-empty">No settlements are waiting release.</div>}
-              </div>
-            </WorkboardCard>
-
-            <WorkboardCard eyebrow="Approvals" title="Approval items affecting cash release" subtitle="Approval decisions are kept visible alongside settlements so the blocker is obvious." count={pendingApprovals.length} tone={pendingApprovals.length ? "medium" : "normal"}>
-              <div className="workboard-list">
-                {pendingApprovals.length ? recentRows(pendingApprovals, ["requested_at"], 4).map((row) => (
-                  <WorkboardItem
-                    key={row.id}
-                    title={`${titleCase(row.approval_type)} · ${row.entity_id}`}
-                    meta={`${row.id} · ${compactDateTime(row.requested_at)}`}
-                    detail={row.notes || "Pending approval decision"}
-                    chips={[
-                      <QueueFreshTag key="fresh" />,
-                      <SeverityBadge key="status" value={row.status} />
-                    ]}
-                    action={<InlineConfirmAction label="Approve" disabled={!handlers.canAction("decide_approvals")} onConfirm={() => handlers.onDecideApproval(row.id, "approved")} />}
-                  />
-                )) : <div className="queue-empty">No approvals are blocking release right now.</div>}
-              </div>
-            </WorkboardCard>
-
-          </div> : null}
+          {pendingApprovals.length ? (
+            <div className="ops-blocker-strip">
+              <strong>{pendingApprovals.length} approval blocker{pendingApprovals.length === 1 ? "" : "s"} can hold up cash release.</strong>
+              <button type="button" className="btn-ghost btn-small" onClick={() => handlers.onSetActive("governance")}>Open Approvals</button>
+            </div>
+          ) : null}
 
           <TableCard title={`Pending Settlements — ${pendingSettlementRows.length}`}>
             <BulkBar
@@ -3432,23 +3379,47 @@ function OperationsSection({ sectionData, handlers }) {
                 }}
               ]}
             />
-            <div className="queue-action-list">
-              {pendingSettlementRows.length ? pendingSettlementRows.map((row) => (
-                <QueueActionRow
-                  key={row.id}
-                  id={row.id}
-                  selected={settlementSelection.selected.has(row.id)}
-                  onSelect={() => { if (canMarkSettlementPaid(row, marketSalesOrders)) settlementSelection.toggle(row.id); }}
-                  title={joinParts([row.farmer_id, currency(row.net_amount)])}
-                  meta={joinParts([row.crop, row.id])}
-                  detail={row.sales_order_id ? `Sales order ${row.sales_order_id}` : `Collection ${row.collection_id}`}
-                  action={row.payment_status !== "paid" ? <InlineConfirmAction label="Mark Paid" disabled={!handlers.canAction("release_settlement") || !canMarkSettlementPaid(row, marketSalesOrders)} onConfirm={() => handlers.onMarkSettlementPaid(row.id)} /> : <span className="queue-inline-done">Done</span>}
-                />
-              )) : <div className="queue-empty">No settlements are waiting release.</div>}
-            </div>
+            <SelectableTable
+              selection={settlementSelection}
+              idKey="id"
+              columns={[
+                { key: "id", label: "Settlement" },
+                { key: "farmer_id", label: "Farmer" },
+                { key: "crop", label: "Crop" },
+                { key: "net_amount", label: "Net", render: (v) => currency(v) },
+                { key: "sales_order_id", label: "Sales order", render: (v) => v || "-" },
+                { key: "payment_status", label: "Status", render: (v) => <SeverityBadge value={v} /> },
+                {
+                  key: "id",
+                  label: "Action",
+                  render: (_v, row) =>
+                    canMarkSettlementPaid(row, marketSalesOrders) ? (
+                      <InlineConfirmAction
+                        label="Mark Paid"
+                        disabled={!handlers.canAction("release_settlement")}
+                        onConfirm={() => handlers.onMarkSettlementPaid(row.id)}
+                      />
+                    ) : <span className="hint">Awaiting</span>
+                }
+              ]}
+              rows={pendingSettlementRows}
+            />
           </TableCard>
-          <TableCard title="All Settlements" collapsible><DataTable columns={[{ key: "id", label: "Settlement" }, { key: "farmer_id", label: "Farmer" }, { key: "crop", label: "Crop" }, { key: "net_amount", label: "Net", render: (value) => currency(value) }, { key: "payment_status", label: "Status", render: (value) => <SeverityBadge value={value} /> }]} rows={settlementsDisplay} /></TableCard>
-          <TableCard title="Approval Queue" collapsible><DataTable columns={[{ key: "id", label: "Approval ID" }, { key: "approval_type", label: "Type" }, { key: "entity_id", label: "Entity" }, { key: "status", label: "Status", render: (value) => <SeverityBadge value={value} /> }, { key: "id", label: "Action", render: (_value, row) => row.status === "pending" ? <InlineConfirmAction label="Approve" disabled={!handlers.canAction("decide_approvals")} onConfirm={() => handlers.onDecideApproval(row.id, "approved")} /> : "Closed" }]} rows={approvalQueue.slice(0, 12)} /></TableCard>
+
+          <TableCard title="Settlement history" collapsible defaultOpen={false}>
+            <DataTable
+              enableSearch
+              columns={[
+                { key: "id", label: "Settlement" },
+                { key: "farmer_id", label: "Farmer" },
+                { key: "crop", label: "Crop" },
+                { key: "net_amount", label: "Net", render: (v) => currency(v) },
+                { key: "payment_date", label: "Paid on" },
+                { key: "payment_status", label: "Status", render: (v) => <SeverityBadge value={v} /> }
+              ]}
+              rows={settlementsDisplay.filter((row) => row.payment_status === "paid")}
+            />
+          </TableCard>
         </div>
       ) : null}
 
@@ -3486,6 +3457,7 @@ function MarketSection({ sectionData, handlers }) {
   const [matchCropFilter, setMatchCropFilter] = useState("");
   const [trackerQuery, setTrackerQuery] = useState("");
   const [trackerActiveId, setTrackerActiveId] = useState(null);
+  const [orderStatusFilter, setOrderStatusFilter] = useState("attention");
   const [buyerDemandForm, setBuyerDemandForm] = useState({ buyer_id: buyers[0]?.id || "", crop: "Tomato", quantity_mt: "55", offered_price: "2250", delivery_location: buyers[0]?.district || "Pune" });
   const [salesOrderForm, setSalesOrderForm] = useState({ buyer_id: buyers[0]?.id || "", crop: "Tomato", quantity_mt: "40", price: "2250", buyer_demand_id: "", collection_ids: [] });
   const [dispatchForm, setDispatchForm] = useState({ sales_order_id: salesOrders[0]?.id || "", qty_dispatched_mt: "22", vehicle_no: "MH-12-4587" });
@@ -3503,6 +3475,13 @@ function MarketSection({ sectionData, handlers }) {
   const pendingSettlements = settlements.filter((row) => row.payment_status === "pending");
   const recentBuyerDemands = recentRows(openBuyerDemands, ["required_date"], 4);
   const recentOrderAttention = recentRows(orderAttentionRows, ["created_date"], 4);
+  const visibleOrders = useMemo(() => {
+    if (orderStatusFilter === "attention") return orderAttentionRows;
+    if (orderStatusFilter === "approved") return salesOrders.filter((row) => isApprovalCleared(row.approval_status));
+    if (orderStatusFilter === "paid") return salesOrders.filter((row) => row.payment_status === "received");
+    return salesOrders;
+  }, [orderAttentionRows, orderStatusFilter, salesOrders]);
+  const orderSelection = useSelection(visibleOrders);
 
   const rankedMatches = useMemo(() => [...matching].sort((l, r) => Number(r.match_score || 0) - Number(l.match_score || 0)), [matching]);
   const cropOptions = useMemo(() => [...new Set(rankedMatches.map((m) => m.crop).filter(Boolean))], [rankedMatches]);
@@ -3929,63 +3908,6 @@ function MarketSection({ sectionData, handlers }) {
         </div>
       ) : null}
 
-      {tab !== "tracker" ? <div className="workboard-grid">
-        <WorkboardCard eyebrow="Fresh demand" title="Buyer asks to work first" subtitle="New or still-open buyer asks stay visible before the broader demand board." count={openBuyerDemands.length} tone={openBuyerDemands.length ? "medium" : "normal"}>
-          <div className="workboard-list">
-            {recentBuyerDemands.length ? recentBuyerDemands.map((row) => (
-              <WorkboardItem
-                key={row.id}
-                title={joinParts([row.buyer_name, row.crop])}
-                meta={joinParts([`${number(row.quantity_mt || 0)} MT`, currency(row.offered_price)])}
-                detail={joinParts([row.required_date ? `Needed ${compactDateTime(row.required_date)}` : "", row.delivery_location])}
-                chips={[<QueueFreshTag key="fresh" />, <SeverityBadge key="status" value={row.status} />]}
-              />
-            )) : <div className="queue-empty">No open buyer asks right now.</div>}
-          </div>
-        </WorkboardCard>
-
-        <WorkboardCard eyebrow="Best match" title="Highest-confidence deals ready to move" subtitle="The strongest current fits are surfaced before the full ranked list." count={rankedMatches.length} tone={rankedMatches.some((row) => Number(row.match_score || 0) >= 0.8) ? "medium" : "normal"}>
-          <div className="workboard-list">
-            {recentMarketMatches.length ? recentMarketMatches.map((row) => (
-              <WorkboardItem
-                key={`${row.buyer_demand_id}-${row.fpo_name}`}
-                title={joinParts([row.crop, row.buyer_name])}
-                meta={joinParts([row.fpo_name, `${Math.round(Number(row.match_score || 0) * 100)}% score`])}
-                detail={joinParts([`Need ${number(row.required_mt || 0)} MT`, `Available ${number(row.available_mt || 0)} MT`, currency(row.offered_price)])}
-                chips={[<QueueFreshTag key="fresh" />]}
-                action={<button type="button" className="btn-ghost btn-small" disabled={!handlers.canAction("create_sales_order")} onClick={() => acceptMatch(row)}>Create order</button>}
-              />
-            )) : <div className="queue-empty">No match candidates are available yet.</div>}
-          </div>
-        </WorkboardCard>
-
-        <WorkboardCard eyebrow="Follow-through" title="Orders and dispatches still in motion" subtitle="Post-match activity stays visible so execution does not get lost after the deal is made." count={orderAttentionRows.length + activeDispatchRows.length} tone={orderAttentionRows.length ? "high" : activeDispatchRows.length ? "medium" : "normal"}>
-          <div className="workboard-list">
-            {recentOrderAttention.length ? recentOrderAttention.map((row) => (
-              <WorkboardItem
-                key={row.id}
-                title={joinParts([row.id, row.buyer_name])}
-                meta={joinParts([row.crop, `${number(row.quantity_mt || 0)} MT`, currency(row.price)])}
-                detail={joinParts([approvalSummaryLabel(row.approval_status), row.payment_status !== "received" ? "Payment pending" : "Payment received"])}
-                chips={[
-                  row.created_by_agent ? <span className="badge badge-info" key="agent">Agent</span> : <QueueFreshTag key="fresh" />,
-                  <SeverityBadge key="approval" value={row.approval_status} />,
-                  <SeverityBadge key="payment" value={row.payment_status} />
-                ]}
-              />
-            )) : activeDispatchRows.length ? activeDispatchRows.map((row) => (
-              <WorkboardItem
-                key={row.id}
-                title={joinParts([row.id, row.sales_order_id])}
-                meta={joinParts([`${number(row.qty_dispatched_mt || 0)} MT`, row.vehicle_no])}
-                detail={joinParts([row.dispatch_date ? compactDateTime(row.dispatch_date) : "", titleCase(row.delivery_status)])}
-                chips={[<QueueFreshTag key="fresh" />, <SeverityBadge key="status" value={row.delivery_status} />]}
-              />
-            )) : <div className="queue-empty">No follow-through queue is open right now.</div>}
-          </div>
-        </WorkboardCard>
-      </div> : null}
-
       {tab === "matching" ? (
         <div className="stack">
           <div className="match-filter-bar">
@@ -4094,8 +4016,43 @@ function MarketSection({ sectionData, handlers }) {
 
       {tab === "orders" ? (
         <div className="stack">
-          <TableCard title={`Sales Orders needing attention — ${orderAttentionRows.length}`}>
+          <div className="filter-strip">
+            {[
+              { id: "attention", label: `Needs attention (${orderAttentionRows.length})`, tone: orderAttentionRows.length ? "high" : "neutral" },
+              { id: "approved", label: "Approved" },
+              { id: "paid", label: "Paid" },
+              { id: "all", label: `All (${salesOrders.length})` }
+            ].map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                className={`filter-chip ${orderStatusFilter === f.id ? "active" : ""} tone-${f.tone || "neutral"}`}
+                onClick={() => setOrderStatusFilter(f.id)}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+
+          <TableCard title={`Sales Orders — ${visibleOrders.length}`}>
+            <BulkBar
+              count={orderSelection.count}
+              onClear={orderSelection.clear}
+              actions={[
+                {
+                  label: `Mark ${orderSelection.count} paid`,
+                  tone: "primary",
+                  disabled: !handlers.canAction("mark_sales_paid"),
+                  onClick: async () => {
+                    for (const id of orderSelection.ids) await handlers.onMarkSalesOrderPaid(id);
+                    orderSelection.clear();
+                  }
+                }
+              ]}
+            />
             <SelectableTable
+              selection={orderSelection}
+              idKey="id"
               columns={[
                 { key: "id", label: "Order" },
                 { key: "buyer_name", label: "Buyer" },
@@ -4112,26 +4069,13 @@ function MarketSection({ sectionData, handlers }) {
                     canMarkSalesOrderPaid(row, dispatches) ? (
                       <InlineConfirmAction label="Mark Paid" disabled={!handlers.canAction("mark_sales_paid")} onConfirm={() => handlers.onMarkSalesOrderPaid(row.id)} />
                     ) : isApprovalPending(row.approval_status) ? (
-                      "Await approval"
+                      <span className="hint">Awaiting approval</span>
                     ) : isApprovalCleared(row.approval_status) && !hasDispatchForSalesOrder(row.id, dispatches) ? (
-                      "Dispatch first"
-                    ) : "Paid"
+                      <span className="hint">Dispatch first</span>
+                    ) : <span className="hint">Paid</span>
                 }
               ]}
-              rows={orderAttentionRows}
-            />
-          </TableCard>
-          <TableCard title="All Sales Orders" collapsible>
-            <DataTable
-              columns={[
-                { key: "id", label: "Order ID" },
-                { key: "buyer_name", label: "Buyer" },
-                { key: "crop", label: "Crop" },
-                { key: "quantity_mt", label: "Qty (MT)" },
-                { key: "price", label: "Price", render: (v) => currency(v) },
-                { key: "payment_status", label: "Payment", render: (v) => <SeverityBadge value={v} /> }
-              ]}
-              rows={salesOrders}
+              rows={visibleOrders}
             />
           </TableCard>
         </div>
