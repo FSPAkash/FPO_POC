@@ -2980,8 +2980,7 @@ function OperationsSection({ sectionData, handlers }) {
         ],
         status: [
           { label: operationsTrackerItems[0]?.id ? `Top work item ${operationsTrackerItems[0].id}` : "Tracker is clear", tone: operationsTrackerItems.length ? "high" : "normal" }
-        ],
-        primaryAction: <button type="button" className="btn-primary" onClick={() => setPaletteOpen(true)}>Open Tracker Commands</button>
+        ]
       }
     : tab === "demands"
     ? {
@@ -3069,7 +3068,6 @@ function OperationsSection({ sectionData, handlers }) {
       <div className="section-sticky-head glass-light">
         <SubTabNav tabs={tabs} active={tab} onChange={setTab} />
         <div className="section-sticky-actions">
-          <button type="button" className="btn-ghost btn-small" onClick={() => setPaletteOpen(true)} title="Command palette (Ctrl+K)">Ctrl+K</button>
           <button type="button" className="btn-ghost btn-small" onClick={() => setWorkboardCollapsed((v) => !v)} title="Toggle board">{workboardCollapsed ? "Show" : "Hide"} board</button>
         </div>
       </div>
@@ -3081,7 +3079,7 @@ function OperationsSection({ sectionData, handlers }) {
         status={operationsLead.status}
         actions={
           <>
-            {operationsLead.primaryAction}
+            {tab === "tracker" ? null : operationsLead.primaryAction}
             <button type="button" className="btn-ghost" onClick={() => setPaletteOpen(true)}>Commands</button>
           </>
         }
@@ -3838,7 +3836,8 @@ function MarketSection({ sectionData, handlers }) {
           ],
           status: [
             { label: recentBuyerDemands[0]?.buyer_name ? `Newest ask from ${recentBuyerDemands[0].buyer_name}` : "No recent buyer ask", tone: "neutral" }
-          ]
+          ],
+          primaryAction: <button type="button" className="btn-primary" onClick={() => setDrawer("buyer")} disabled={!handlers.canAction("create_buyer_demand")}>Add Buyer Demand</button>
         }
       : tab === "orders"
         ? {
@@ -3852,7 +3851,8 @@ function MarketSection({ sectionData, handlers }) {
             ],
             status: [
               { label: recentOrderAttention[0]?.id ? `Newest follow-up item ${recentOrderAttention[0].id}` : "No follow-up backlog", tone: orderAttentionRows.length ? "high" : "normal" }
-            ]
+            ],
+            primaryAction: <button type="button" className="btn-primary" onClick={() => setDrawer("sales")} disabled={!handlers.canAction("create_sales_order")}>Create Sales Order</button>
           }
         : tab === "dispatch"
           ? {
@@ -3866,7 +3866,8 @@ function MarketSection({ sectionData, handlers }) {
               ],
               status: [
                 { label: activeDispatchRows[0]?.vehicle_no ? `Latest live vehicle ${activeDispatchRows[0].vehicle_no}` : "No live vehicle movement", tone: "neutral" }
-              ]
+              ],
+              primaryAction: <button type="button" className="btn-primary" onClick={() => setDrawer("dispatch")} disabled={!handlers.canAction("create_dispatch")}>Create Dispatch</button>
             }
           : {
               eyebrow: "Market intelligence",
@@ -3887,10 +3888,6 @@ function MarketSection({ sectionData, handlers }) {
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} />
       <div className="section-sticky-head glass-light">
         <SubTabNav tabs={tabs} active={tab} onChange={setTab} />
-        <div className="section-sticky-actions">
-          <button type="button" className="btn-ghost btn-small" onClick={() => setPaletteOpen(true)} title="Ctrl+K">Ctrl+K</button>
-          <button type="button" className="btn-primary btn-small" onClick={() => setDrawer("buyer")} disabled={!handlers.canAction("create_buyer_demand")}>Add Buyer Demand</button>
-        </div>
       </div>
 
       <SectionLead
@@ -3901,7 +3898,7 @@ function MarketSection({ sectionData, handlers }) {
         status={marketLead.status}
         actions={
           <>
-            <button type="button" className="btn-primary" onClick={() => setDrawer("buyer")} disabled={!handlers.canAction("create_buyer_demand")}>Add Buyer Demand</button>
+            {marketLead.primaryAction}
             <button type="button" className="btn-ghost" onClick={() => setPaletteOpen(true)}>Commands</button>
           </>
         }
@@ -4142,10 +4139,6 @@ function MarketSection({ sectionData, handlers }) {
 
       {tab === "dispatch" ? (
         <div className="stack">
-          <div className="section-toolbar">
-            <div />
-            <button type="button" className="btn-primary" disabled={!handlers.canAction("create_dispatch")} onClick={() => setDrawer("dispatch")}>Create Dispatch</button>
-          </div>
           <TableCard title="Dispatches">
             <DataTable
               enableSearch
@@ -4937,9 +4930,6 @@ function GovernanceSection({ sectionData, handlers }) {
 
       <div className="section-sticky-head">
         <SubTabNav tabs={tabs} active={tab} onChange={setTab} />
-        <div className="section-sticky-actions">
-          <button type="button" className="btn-ghost" onClick={() => setPaletteOpen(true)}>Commands</button>
-        </div>
       </div>
 
       <SectionLead
